@@ -38,6 +38,86 @@ Resources:
             Method: GET
             Path: /confirm
 
+  WalletAccountCreatorStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: wallet-account-creator
+      Type: STANDARD
+      Role: arn:aws:iam::747170788015:role/service-role/StepFunctions-wallet-account-creator-role-khki9937v
+      DefinitionSubstitutions:
+        ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
+      Definition:
+        Comment: DCC LCW registration state machine
+        QueryLanguage: JSONata
+        StartAt: SendEmailVerification
+        States:
+          SendEmailVerification:
+            Type: Task
+            Resource: arn:aws:states:::aws-sdk:sesv2:sendEmail.waitForTaskToken
+            Arguments:
+              FromEmailAddress: james.chartrand@dccommons.org
+              Destination:
+                ToAddresses:
+                  - '{% $states.input.recipientEmail %}'
+              Content:
+                Simple:
+                  Subject:
+                    Data: DCC LCW - Please Confirm Your Email Address
+                  Body:
+                    Html:
+                      Data: "{% 'Please click the link to approve: ${ConfirmUrl}?token=' & $states.context.Task.Token %}"
+            Next: GenerateBucketName
+          GenerateBucketName:
+            Type: Pass
+            Assign:
+              BucketName: "{% 'dcc-was-' & $uuid() %}"
+            Next: CreateS3Bucket
+          CreateS3Bucket:
+            Type: Task
+            Resource: arn:aws:states:::aws-sdk:s3:createBucket
+            Arguments:
+              Bucket: '{% $BucketName %}'
+            Next: CreateAccount
+          CreateAccount:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:putItem
+            Arguments:
+              TableName: wallet-test
+              Item:
+                email:
+                  S: '{% $states.context.Execution.Input.recipientEmail %}'
+                did:
+                  S: '{% $states.context.Execution.Input.did %}'
+                bucket:
+                  S: '{% $BucketName %}'
+                CreatedAt:
+                  S: '{% $now() %}'
+            Next: UploadInitialVCToS3
+          UploadInitialVCToS3:
+            Type: Task
+            Resource: arn:aws:states:::aws-sdk:s3:putObject
+            Arguments:
+              Bucket: '{% $BucketName %}'
+              Key: credentials/hello-world.txt
+              Body: This file was generated directly by an AWS Step Functions workflow.
+            Next: SendEmailConf
+          SendEmailConf:
+            Type: Task
+            Resource: arn:aws:states:::aws-sdk:sesv2:sendEmail
+            Arguments:
+              FromEmailAddress: james.chartrand@dccommons.org
+              Destination:
+                ToAddresses:
+                  - '{% $states.context.Execution.Input.recipientEmail %}'
+              Content:
+                Simple:
+                  Subject:
+                    Data: DCC LCW - Your Wallet is Ready
+                  Body:
+                    Text:
+                      Data: "{% 'You have been registered! Your S3 bucket:  ' & $BucketName %}"
+            End: true
+
   FunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -51,3 +131,6 @@ Outputs:
   FunctionArn:
     Description: Lambda function ARN
     Value: !GetAtt RegistrationEmailConfirmationFunction.Arn
+  StateMachineArn:
+    Description: Wallet account creator state machine ARN
+    Value: !Ref WalletAccountCreatorStateMachine
