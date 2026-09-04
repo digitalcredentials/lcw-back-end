@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Email confirmation callback for the registration flow. An HTTP API exposes
+  GET /confirm, which resumes a waiting Step Functions execution by sending
+  the task token from the confirmation link back via SendTaskSuccess.
+
+Resources:
+  ConfirmationHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: lcw-account-email-conf
+
+  RegistrationEmailConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: registration-email-confirmation
+      Description: Confirms a registration email and resumes the Step Functions execution
+      CodeUri: src/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - x86_64
+      MemorySize: 128
+      Timeout: 3
+      LoggingConfig:
+        LogGroup: !Ref FunctionLogGroup
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: states:SendTaskSuccess
+              Resource: '*'
+      Events:
+        ConfirmRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: GET
+            Path: /confirm
+
+  FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/registration-email-confirmation
+      RetentionInDays: 30
+
+Outputs:
+  ConfirmUrl:
+    Description: URL for the email confirmation link (append ?token=...)
+    Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
+  FunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt RegistrationEmailConfirmationFunction.Arn
