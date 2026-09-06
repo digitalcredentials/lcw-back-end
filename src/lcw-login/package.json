@@ -9,5 +9,8 @@
     "@interop/security-document-loader": "^10.1.1",
     "@interop/ed25519-verification-key": "^8.1.0",
     "@interop/ed25519-signature": "^7.2.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }
