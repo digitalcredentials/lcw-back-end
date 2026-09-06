@@ -1,0 +1,13 @@
+{
+  "name": "lcw-login",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@interop/http-client": "^1.0.5",
+    "@interop/http-signature-zcap-verify": "^12.2.2",
+    "@interop/security-document-loader": "^10.1.1",
+    "@interop/ed25519-verification-key": "^8.1.0",
+    "@interop/ed25519-signature": "^7.2.1"
+  }
+}

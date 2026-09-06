@@ -16,7 +16,7 @@ Resources:
     Properties:
       FunctionName: registration-email-confirmation
       Description: Confirms a registration email and resumes the Step Functions execution
-      CodeUri: src/
+      CodeUri: src/registration-email-confirmation/
       Handler: index.handler
       Runtime: nodejs24.x
       Architectures:
@@ -37,6 +37,34 @@ Resources:
             ApiId: !Ref ConfirmationHttpApi
             Method: GET
             Path: /confirm
+
+  LcwLoginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lcw-login
+      Description: Verifies a zCap HTTP-signature capability invocation for login by email
+      CodeUri: src/lcw-login/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      Timeout: 10
+      LoggingConfig:
+        LogGroup: !Ref LoginFunctionLogGroup
+      Events:
+        LoginRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: POST
+            Path: /login
+
+  LoginFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/lcw-login
+      RetentionInDays: 30
 
   WalletAccountCreatorStateMachine:
     Type: AWS::Serverless::StateMachine
@@ -131,6 +159,9 @@ Outputs:
   FunctionArn:
     Description: Lambda function ARN
     Value: !GetAtt RegistrationEmailConfirmationFunction.Arn
+  LoginUrl:
+    Description: URL for the zCap-authenticated login endpoint (POST)
+    Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/login
   StateMachineArn:
     Description: Wallet account creator state machine ARN
     Value: !Ref WalletAccountCreatorStateMachine
