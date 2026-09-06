@@ -53,10 +53,6 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: wallet-test
-          # The Lambda Node runtime disables require() of ES modules (on by
-          # default in stock Node 22.12+); without this the @interop/jsonld
-          # (CJS) -> @interop/http-client (ESM) require fails at init.
-          NODE_OPTIONS: --experimental-require-module
       Policies:
         - DynamoDBReadPolicy:
             TableName: wallet-test
@@ -69,6 +65,18 @@ Resources:
             ApiId: !Ref ConfirmationHttpApi
             Method: POST
             Path: /login
+    Metadata:
+      # Bundling resolves the CJS require of the ESM @interop/http-client at
+      # build time; the Lambda runtime refuses it at runtime (ERR_REQUIRE_ESM).
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: node22
+        Sourcemap: false
+        EntryPoints:
+          - index.mjs
+        External:
+          - '@aws-sdk/*'
 
   LoginFunctionLogGroup:
     Type: AWS::Logs::LogGroup
