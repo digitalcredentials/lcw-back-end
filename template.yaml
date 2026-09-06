@@ -53,6 +53,10 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: wallet-test
+          # The Lambda Node runtime disables require() of ES modules (on by
+          # default in stock Node 22.12+); without this the @interop/jsonld
+          # (CJS) -> @interop/http-client (ESM) require fails at init.
+          NODE_OPTIONS: --experimental-require-module
       Policies:
         - DynamoDBReadPolicy:
             TableName: wallet-test
