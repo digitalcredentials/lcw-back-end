@@ -5,8 +5,11 @@ import { verifyCapabilityInvocation } from "@interop/http-signature-zcap-verify"
 import { Ed25519Signature2020 } from "@interop/ed25519-signature";
 import { securityLoader } from "@interop/security-document-loader";
 import { Ed25519VerificationKey } from "@interop/ed25519-verification-key";
+import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
 const documentLoader = securityLoader().build();
+const dynamoClient = new DynamoDBClient();
+const TABLE_NAME = process.env.TABLE_NAME ?? "wallet-test";
 
 async function getVerifier({ keyId, documentLoader }) {
     const { document } = await documentLoader(keyId);
@@ -40,8 +43,9 @@ export const handler = async (event) => {
     const host = event.requestContext.domainName;
     const url = `https://${host}${event.rawPath}`;
 
+    let result;
     try {
-        const result = await verifyCapabilityInvocation({
+        result = await verifyCapabilityInvocation({
             url,
             method: event.requestContext.http.method,
             headers: event.headers,
@@ -58,15 +62,36 @@ export const handler = async (event) => {
             console.error("zCap verification failed:", result.error);
             return json(401, { error: "Invalid capability invocation signature." });
         }
-
-        // 3. Signature checks out — the caller controls the invoking key
-        return json(200, {
-            verified: true,
-            email,
-            controller: result.controller
-        });
     } catch (error) {
         console.error("Error verifying capability invocation:", error);
         return json(401, { error: "Invalid capability invocation signature." });
     }
+
+    // 3. Signature checks out — now bind the invoking key's controller to the
+    // DID registered for this email, so a valid signature from someone else's
+    // key can't log in as this account.
+    let account;
+    try {
+        ({ Item: account } = await dynamoClient.send(new GetItemCommand({
+            TableName: TABLE_NAME,
+            Key: { email: { S: email } }
+        })));
+    } catch (error) {
+        console.error("Error looking up account:", error);
+        return json(500, { error: "Failed to look up account." });
+    }
+
+    // Stored DIDs may carry a key fragment (did:key:z6Mk...#z6Mk...)
+    const registeredDid = account?.did?.S?.split("#")[0];
+    if (!registeredDid || registeredDid !== result.controller) {
+        console.error(`Login rejected for ${email}: controller ${result.controller}, registered DID ${registeredDid ?? "none (no account)"}`);
+        return json(401, { error: "Login failed." });
+    }
+
+    return json(200, {
+        verified: true,
+        email,
+        controller: result.controller,
+        bucket: account.bucket?.S
+    });
 };

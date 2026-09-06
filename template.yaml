@@ -50,6 +50,12 @@ Resources:
         - x86_64
       MemorySize: 256
       Timeout: 10
+      Environment:
+        Variables:
+          TABLE_NAME: wallet-test
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: wallet-test
       LoggingConfig:
         LogGroup: !Ref LoginFunctionLogGroup
       Events:
