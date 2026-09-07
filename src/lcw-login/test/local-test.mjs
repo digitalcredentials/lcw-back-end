@@ -13,9 +13,7 @@ import { handler } from "../index.mjs";
 const HOST = "iibe16rs13.execute-api.us-east-1.amazonaws.com";
 const URL = `https://${HOST}/login`;
 const EMAIL = "test@example.com";
-const BUCKET = "dcc-was-11111111-2222-3333-4444-555555555555";
-
-process.env.SPACE_BASE_URL = "https://was.example.org/space";
+const SPACE_URL = "https://was.example.org/space/dcc-was-11111111-2222-3333-4444-555555555555";
 
 // A did:key whose private key we hold, standing in for the wallet's key
 const key = await Ed25519VerificationKey.generate();
@@ -50,7 +48,7 @@ async function run(name, eventPromise, { registeredDid } = {}) {
     ddbMock.reset();
     ddbMock.on(GetItemCommand).resolves(
         registeredDid
-            ? { Item: { email: { S: EMAIL }, did: { S: registeredDid }, bucket: { S: BUCKET } } }
+            ? { Item: { email: { S: EMAIL }, did: { S: registeredDid }, spaceURL: { S: SPACE_URL } } }
             : {}
     );
     const response = await handler(await eventPromise);
