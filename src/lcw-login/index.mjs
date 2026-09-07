@@ -62,8 +62,17 @@ export const handler = async (event) => {
     // 3. Verify the zCap HTTP-signature invocation headers. The root
     // capability for /login is controlled by the account's registered DID, so
     // verification itself rejects invocations signed by anyone else's key.
-    const host = event.requestContext.domainName;
-    const url = `https://${host}${event.rawPath}`;
+    // The URL is rebuilt from the request's own host/proto (rather than
+    // hardcoding https + the API domain) so signatures verify under sam local
+    // (http://127.0.0.1:<port>) as well as behind API Gateway. Header names
+    // are lowercased first: API Gateway delivers them lowercase but sam local
+    // preserves the original casing (e.g. Host).
+    const headers = Object.fromEntries(
+        Object.entries(event.headers ?? {}).map(([name, value]) => [name.toLowerCase(), value])
+    );
+    const proto = headers["x-forwarded-proto"] ?? "https";
+    const host = headers.host ?? event.requestContext.domainName;
+    const url = `${proto}://${host}${event.rawPath}`;
     const rootCapability = createRootCapability({
         controller: registeredDid,
         invocationTarget: url
@@ -79,7 +88,7 @@ export const handler = async (event) => {
         const result = await verifyCapabilityInvocation({
             url,
             method: event.requestContext.http.method,
-            headers: event.headers,
+            headers,
             suite: new Ed25519Signature2020(),
             getVerifier,
             documentLoader: loginDocumentLoader,
