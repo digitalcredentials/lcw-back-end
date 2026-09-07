@@ -10,8 +10,8 @@ Parameters:
     Type: String
     Description: >
       Base URL for Wallet Attached Storage space URLs (typically ending in
-      /space). The account's space id is appended after a slash to form the
-      space URL returned by lcw-login.
+      /space). At registration the state machine appends the account's space
+      id after a slash and stores the result as the account's spaceURL.
     Default: https://was.example.org/space
 
 Resources:
@@ -61,11 +61,10 @@ Resources:
       Timeout: 10
       Environment:
         Variables:
-          TABLE_NAME: wallet-test
-          SPACE_BASE_URL: !Ref SpaceBaseUrl
+          TABLE_NAME: !Ref WalletTestTable
       Policies:
         - DynamoDBReadPolicy:
-            TableName: wallet-test
+            TableName: !Ref WalletTestTable
       LoggingConfig:
         LogGroup: !Ref LoginFunctionLogGroup
       Events:
@@ -102,6 +101,8 @@ Resources:
       Role: arn:aws:iam::747170788015:role/service-role/StepFunctions-wallet-account-creator-role-khki9937v
       DefinitionSubstitutions:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
+        SpaceUrlBase: !Ref SpaceBaseUrl
+        AccountTable: !Ref WalletTestTable
       Definition:
         Comment: DCC LCW registration state machine
         QueryLanguage: JSONata
@@ -138,14 +139,14 @@ Resources:
             Type: Task
             Resource: arn:aws:states:::dynamodb:putItem
             Arguments:
-              TableName: wallet-test
+              TableName: ${AccountTable}
               Item:
                 email:
                   S: '{% $states.context.Execution.Input.recipientEmail %}'
                 did:
                   S: '{% $states.context.Execution.Input.did %}'
-                bucket:
-                  S: '{% $BucketName %}'
+                spaceURL:
+                  S: "{% '${SpaceUrlBase}/' & $BucketName %}"
                 CreatedAt:
                   S: '{% $now() %}'
             Next: UploadInitialVCToS3
@@ -171,8 +172,20 @@ Resources:
                     Data: DCC LCW - Your Wallet is Ready
                   Body:
                     Text:
-                      Data: "{% 'You have been registered! Your S3 bucket:  ' & $BucketName %}"
+                      Data: "{% 'You have been registered! Your storage space: ${SpaceUrlBase}/' & $BucketName %}"
             End: true
+
+  WalletTestTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: wallet-test
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
 
   FunctionLogGroup:
     Type: AWS::Logs::LogGroup
