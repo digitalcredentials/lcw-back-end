@@ -5,6 +5,7 @@ import { verifyCapabilityInvocation } from "@interop/http-signature-zcap-verify"
 import { Ed25519Signature2020 } from "@interop/ed25519-signature";
 import { securityLoader } from "@interop/security-document-loader";
 import { Ed25519VerificationKey } from "@interop/ed25519-verification-key";
+import { createRootCapability } from "@interop/zcap";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
 const documentLoader = securityLoader().build();
@@ -39,37 +40,7 @@ export const handler = async (event) => {
         return json(400, { error: "Missing email in request body." });
     }
 
-    // 2. Verify the zCap HTTP-signature invocation headers
-    const host = event.requestContext.domainName;
-    const url = `https://${host}${event.rawPath}`;
-
-    let result;
-    try {
-        result = await verifyCapabilityInvocation({
-            url,
-            method: event.requestContext.http.method,
-            headers: event.headers,
-            suite: new Ed25519Signature2020(),
-            getVerifier,
-            documentLoader,
-            expectedHost: host,
-            expectedAction: "write",
-            expectedTarget: url,
-            expectedRootCapability: `urn:zcap:root:${encodeURIComponent(url)}`
-        });
-
-        if (!result.verified) {
-            console.error("zCap verification failed:", result.error);
-            return json(401, { error: "Invalid capability invocation signature." });
-        }
-    } catch (error) {
-        console.error("Error verifying capability invocation:", error);
-        return json(401, { error: "Invalid capability invocation signature." });
-    }
-
-    // 3. Signature checks out — now bind the invoking key's controller to the
-    // DID registered for this email, so a valid signature from someone else's
-    // key can't log in as this account.
+    // 2. Look up the account so the registered DID can control the root zcap
     let account;
     try {
         ({ Item: account } = await dynamoClient.send(new GetItemCommand({
@@ -83,15 +54,54 @@ export const handler = async (event) => {
 
     // Stored DIDs may carry a key fragment (did:key:z6Mk...#z6Mk...)
     const registeredDid = account?.did?.S?.split("#")[0];
-    if (!registeredDid || registeredDid !== result.controller) {
-        console.error(`Login rejected for ${email}: controller ${result.controller}, registered DID ${registeredDid ?? "none (no account)"}`);
+    if (!registeredDid) {
+        console.error(`Login rejected for ${email}: no registered account`);
+        return json(401, { error: "Login failed." });
+    }
+
+    // 3. Verify the zCap HTTP-signature invocation headers. The root
+    // capability for /login is controlled by the account's registered DID, so
+    // verification itself rejects invocations signed by anyone else's key.
+    const host = event.requestContext.domainName;
+    const url = `https://${host}${event.rawPath}`;
+    const rootCapability = createRootCapability({
+        controller: registeredDid,
+        invocationTarget: url
+    });
+    const loginDocumentLoader = async (documentUrl) => {
+        if (documentUrl === rootCapability.id) {
+            return { contextUrl: null, documentUrl, document: rootCapability };
+        }
+        return documentLoader(documentUrl);
+    };
+
+    try {
+        const result = await verifyCapabilityInvocation({
+            url,
+            method: event.requestContext.http.method,
+            headers: event.headers,
+            suite: new Ed25519Signature2020(),
+            getVerifier,
+            documentLoader: loginDocumentLoader,
+            expectedHost: host,
+            expectedAction: "write",
+            expectedTarget: url,
+            expectedRootCapability: rootCapability.id
+        });
+
+        if (!result.verified) {
+            console.error(`Login rejected for ${email}:`, result.error);
+            return json(401, { error: "Login failed." });
+        }
+    } catch (error) {
+        console.error(`Login rejected for ${email}:`, error);
         return json(401, { error: "Login failed." });
     }
 
     return json(200, {
         verified: true,
         email,
-        controller: result.controller,
+        controller: registeredDid,
         bucket: account.bucket?.S
     });
 };
