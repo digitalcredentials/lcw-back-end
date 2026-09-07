@@ -19,6 +19,17 @@ Resources:
     Type: AWS::Serverless::HttpApi
     Properties:
       Name: lcw-account-email-conf
+      # Wildcard origin is safe here: auth is via signed zCap headers, not
+      # cookies (AllowCredentials stays false).
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - '*'
 
   RegistrationEmailConfirmationFunction:
     Type: AWS::Serverless::Function
