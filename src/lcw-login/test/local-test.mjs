@@ -15,6 +15,8 @@ const URL = `https://${HOST}/login`;
 const EMAIL = "test@example.com";
 const BUCKET = "dcc-was-11111111-2222-3333-4444-555555555555";
 
+process.env.SPACE_BASE_URL = "https://was.example.org/space";
+
 // A did:key whose private key we hold, standing in for the wallet's key
 const key = await Ed25519VerificationKey.generate();
 const did = `did:key:${key.fingerprint()}`;
