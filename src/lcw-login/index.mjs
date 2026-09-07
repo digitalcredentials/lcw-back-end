@@ -98,10 +98,15 @@ export const handler = async (event) => {
         return json(401, { error: "Login failed." });
     }
 
+    // The account's bucket is its Wallet Attached Storage space id; return
+    // the space URL (GET /space/{space_id} in the WAS spec).
+    const spaceBaseUrl = (process.env.SPACE_BASE_URL ?? "").replace(/\/+$/, "");
+    const spaceId = account.bucket?.S;
+
     return json(200, {
         verified: true,
         email,
         controller: registeredDid,
-        bucket: account.bucket?.S
+        space: spaceId ? `${spaceBaseUrl}/${spaceId}` : undefined
     });
 };
