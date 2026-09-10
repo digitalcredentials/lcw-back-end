@@ -6,6 +6,14 @@ Description: >
   the task token from the confirmation link back via SendTaskSuccess.
 
 Parameters:
+  RegistrationCode:
+    Type: String
+    NoEcho: true
+    Description: >
+      Code a user must supply on the registration form before the registration
+      state machine is started. Override at deploy time; the default is only
+      for local development.
+    Default: test-registration-code
   SpaceBaseUrl:
     Type: String
     Description: >
@@ -57,6 +65,44 @@ Resources:
             ApiId: !Ref ConfirmationHttpApi
             Method: GET
             Path: /confirm
+
+  LcwRegisterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lcw-register
+      Description: Gates registration on a code, then starts the wallet-account-creator state machine
+      CodeUri: src/lcw-register/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - x86_64
+      MemorySize: 128
+      Timeout: 5
+      Environment:
+        Variables:
+          REGISTRATION_CODE: !Ref RegistrationCode
+          # Constructed rather than !Ref'd: the state machine references the
+          # HTTP API (for ConfirmUrl), and the API embeds this function, so a
+          # !Ref here would close a circular dependency. The name is fixed.
+          STATE_MACHINE_ARN: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:wallet-account-creator
+      Policies:
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: wallet-account-creator
+      LoggingConfig:
+        LogGroup: !Ref RegisterFunctionLogGroup
+      Events:
+        RegisterRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: POST
+            Path: /register
+
+  RegisterFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/lcw-register
+      RetentionInDays: 30
 
   LcwLoginFunction:
     Type: AWS::Serverless::Function
@@ -211,6 +257,9 @@ Outputs:
   FunctionArn:
     Description: Lambda function ARN
     Value: !GetAtt RegistrationEmailConfirmationFunction.Arn
+  RegisterUrl:
+    Description: URL for the code-gated registration endpoint (POST)
+    Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/register
   LoginUrl:
     Description: URL for the zCap-authenticated login endpoint (POST)
     Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/login
