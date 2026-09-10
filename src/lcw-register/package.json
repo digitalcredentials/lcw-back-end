@@ -1,0 +1,13 @@
+{
+  "name": "lcw-register",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/local-test.mjs"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-sfn": "^3.1127.0",
+    "aws-sdk-client-mock": "^4.1.0"
+  }
+}
