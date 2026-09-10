@@ -35,6 +35,7 @@ A registration flow and a zCap-authenticated login endpoint:
 | `src/registration-email-confirmation/index.mjs` | Confirmation Lambda handler |
 | `src/lcw-login/index.mjs` | Login Lambda handler |
 | `src/lcw-login/test/local-test.mjs` | Local test for the login handler |
+| `src/lcw-login/test/wire-test.mjs` | Signed end-to-end test against the local API |
 
 ## Parameters
 
@@ -94,6 +95,36 @@ The test runs the handler in-process against a mocked DynamoDB table and
 prints the response for each scenario — malformed bodies, unsigned requests,
 signatures from the wrong DID, and a fully signed capability invocation
 (generated with a fresh `did:key`) that succeeds end to end.
+
+### Running the API locally
+
+The front end and the wire test expect the API on port 3001 (the local
+was-server-aws API uses 3000). Outside CloudFormation `sam local` resolves the
+`TABLE_NAME: !Ref WalletTestTable` env var to the literal logical ID, so it
+needs an override file:
+
+```bash
+cat > env.json <<'JSON'
+{ "LcwLoginFunction": { "TABLE_NAME": "wallet-test" } }
+JSON
+sam build
+sam local start-api --port 3001 --region us-east-1 --env-vars env.json --warm-containers EAGER
+```
+
+Docker must be running; the Lambda reads the **real** `wallet-test` table with
+your local AWS credentials.
+
+### Signed login over the wire
+
+```bash
+cd src/lcw-login
+node test/wire-test.mjs
+```
+
+Registers a temporary account in the real `wallet-test` table (key derived
+from SHA-256 of a password, the same derivation the front end uses), POSTs a
+signed capability invocation over HTTP to the local API on port 3001, checks
+both the success and wrong-password paths, and cleans up.
 
 ### Confirmation route
 
