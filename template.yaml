@@ -191,6 +191,19 @@ Resources:
             Resource: arn:aws:states:::aws-sdk:s3:createBucket
             Arguments:
               Bucket: '{% $BucketName %}'
+            Next: SeedSpaceDescription
+          # The WAS server reads the space description from
+          # metadata/description.json; without one the UI falls back to the
+          # bare space id.
+          SeedSpaceDescription:
+            Type: Task
+            Resource: arn:aws:states:::aws-sdk:s3:putObject
+            Arguments:
+              Bucket: '{% $BucketName %}'
+              Key: metadata/description.json
+              ContentType: application/json
+              Body: >-
+                {% $string({"name": $states.context.Execution.Input.recipientEmail & "'s Space", "type": ["Space"], "controller": $states.context.Execution.Input.did, "createdBy": $states.context.Execution.Input.did}) %}
             Next: CreateAccount
           CreateAccount:
             Type: Task
