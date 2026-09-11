@@ -39,6 +39,18 @@ A registration flow and a zCap-authenticated login endpoint:
 
 ## Parameters
 
+- **`DomainName`** / **`HostedZoneId`** — the registered domain
+  (lcw-sandbox.org) and its Route 53 zone; the template writes the SES DKIM
+  and inbound MX records there.
+- **`FromEmail`** — the address registration emails are sent from and inbound
+  mail is received on (default `registration@lcw-sandbox.org`). Inbound mail
+  is stored in S3 by an SES receipt rule and forwarded by the
+  `lcw-mail-forwarder` Lambda to **`ForwardTo`** (default
+  `james.chartrand@dccommons.org`). CloudFormation cannot activate a receipt
+  rule set, so after the first deploy run
+  `aws ses set-active-receipt-rule-set --rule-set-name lcw-sandbox-inbound`.
+- **`RegistrationCode`** — code the registration form must supply (NoEcho;
+  the default is only for local development).
 - **`SpaceBaseUrl`** — base URL for Wallet Attached Storage space URLs
   (typically ending in `/space`). At registration the state machine appends
   the account's space id after a slash and stores the result as the account's

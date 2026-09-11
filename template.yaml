@@ -6,6 +6,23 @@ Description: >
   the task token from the confirmation link back via SendTaskSuccess.
 
 Parameters:
+  DomainName:
+    Type: String
+    Description: The registered domain whose hosted zone receives the SES DNS records.
+    Default: lcw-sandbox.org
+  HostedZoneId:
+    Type: String
+    Description: Route 53 hosted zone id for DomainName.
+  FromEmail:
+    Type: String
+    Description: >
+      Address registration emails are sent from, and the inbound address the
+      mail forwarder listens on. Must belong to DomainName.
+    Default: registration@lcw-sandbox.org
+  ForwardTo:
+    Type: String
+    Description: Verified address that inbound mail for FromEmail forwards to.
+    Default: james.chartrand@dccommons.org
   RegistrationCode:
     Type: String
     NoEcho: true
@@ -160,6 +177,7 @@ Resources:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
         SpaceUrlBase: !Ref SpaceBaseUrl
         AccountTable: !Ref WalletTestTable
+        FromEmail: !Ref FromEmail
       Definition:
         Comment: DCC LCW registration state machine
         QueryLanguage: JSONata
@@ -169,7 +187,7 @@ Resources:
             Type: Task
             Resource: arn:aws:states:::aws-sdk:sesv2:sendEmail.waitForTaskToken
             Arguments:
-              FromEmailAddress: james.chartrand@dccommons.org
+              FromEmailAddress: ${FromEmail}
               Destination:
                 ToAddresses:
                   - '{% $states.input.recipientEmail %}'
@@ -232,7 +250,7 @@ Resources:
             Type: Task
             Resource: arn:aws:states:::aws-sdk:sesv2:sendEmail
             Arguments:
-              FromEmailAddress: james.chartrand@dccommons.org
+              FromEmailAddress: ${FromEmail}
               Destination:
                 ToAddresses:
                   - '{% $states.context.Execution.Input.recipientEmail %}'
@@ -262,6 +280,143 @@ Resources:
     Properties:
       LogGroupName: /aws/lambda/registration-email-confirmation
       RetentionInDays: 30
+
+  # ---- lcw-sandbox.org email: send as FromEmail, forward inbound to ForwardTo
+
+  SesDomainIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref DomainName
+
+  SesDkimRecord1:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SesDomainIdentity.DkimDNSTokenName1
+      Type: CNAME
+      TTL: '3600'
+      ResourceRecords:
+        - !GetAtt SesDomainIdentity.DkimDNSTokenValue1
+
+  SesDkimRecord2:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SesDomainIdentity.DkimDNSTokenName2
+      Type: CNAME
+      TTL: '3600'
+      ResourceRecords:
+        - !GetAtt SesDomainIdentity.DkimDNSTokenValue2
+
+  SesDkimRecord3:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SesDomainIdentity.DkimDNSTokenName3
+      Type: CNAME
+      TTL: '3600'
+      ResourceRecords:
+        - !GetAtt SesDomainIdentity.DkimDNSTokenValue3
+
+  # Inbound mail lands at SES via this MX record...
+  InboundMxRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: MX
+      TTL: '3600'
+      ResourceRecords:
+        - 10 inbound-smtp.us-east-1.amazonaws.com
+
+  # ...is stored here by the receipt rule...
+  InboundMailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub lcw-inbound-mail-${AWS::AccountId}
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-forwarded-mail
+            Status: Enabled
+            ExpirationInDays: 30
+
+  InboundMailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref InboundMailBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub ${InboundMailBucket.Arn}/*
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  # ...and forwarded on by this function.
+  MailForwarderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lcw-mail-forwarder
+      Description: Forwards inbound lcw-sandbox.org mail to the configured address
+      CodeUri: src/mail-forwarder/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      MemorySize: 128
+      Timeout: 15
+      Environment:
+        Variables:
+          MAIL_BUCKET: !Ref InboundMailBucket
+          FORWARD_FROM: !Ref FromEmail
+          FORWARD_TO: !Ref ForwardTo
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref InboundMailBucket
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: '*'
+
+  MailForwarderInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MailForwarderFunction
+      Action: lambda:InvokeFunction
+      Principal: ses.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  MailReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: lcw-sandbox-inbound
+
+  # NOTE: CloudFormation cannot activate a receipt rule set; after deploy run
+  #   aws ses set-active-receipt-rule-set --rule-set-name lcw-sandbox-inbound
+  MailReceiptRule:
+    Type: AWS::SES::ReceiptRule
+    DependsOn:
+      - InboundMailBucketPolicy
+      - MailForwarderInvokePermission
+    Properties:
+      RuleSetName: !Ref MailReceiptRuleSet
+      Rule:
+        Name: forward-registration
+        Enabled: true
+        Recipients:
+          - !Ref FromEmail
+        ScanEnabled: true
+        Actions:
+          - S3Action:
+              BucketName: !Ref InboundMailBucket
+              ObjectKeyPrefix: inbound/
+          - LambdaAction:
+              FunctionArn: !GetAtt MailForwarderFunction.Arn
+              InvocationType: Event
 
 Outputs:
   ConfirmUrl:
