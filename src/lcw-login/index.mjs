@@ -6,11 +6,38 @@ import { Ed25519Signature2020 } from "@interop/ed25519-signature";
 import { securityLoader } from "@interop/security-document-loader";
 import { Ed25519VerificationKey } from "@interop/ed25519-verification-key";
 import { createRootCapability } from "@interop/zcap";
-import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, GetItemCommand, QueryCommand } from "@aws-sdk/client-dynamodb";
 
 const documentLoader = securityLoader().build();
 const dynamoClient = new DynamoDBClient();
 const TABLE_NAME = process.env.TABLE_NAME ?? "wallet-test";
+const SPACES_TABLE = process.env.SPACES_TABLE_NAME ?? "wallet-spaces";
+
+// The account's registered spaces, from the wallet-spaces registry. An
+// account created before the registry existed has no rows there yet, so fall
+// back to its single legacy spaceURL as the credential space.
+async function getSpaces({ email, account }) {
+    let items = [];
+    try {
+        ({ Items: items = [] } = await dynamoClient.send(new QueryCommand({
+            TableName: SPACES_TABLE,
+            IndexName: "by-email",
+            KeyConditionExpression: "email = :email",
+            ExpressionAttributeValues: { ":email": { S: email } }
+        })));
+    } catch (error) {
+        console.error("Error listing spaces:", error);
+    }
+    if (items.length) {
+        return items.map((item) => ({
+            url: item.spaceURL?.S,
+            type: item.type?.S,
+            name: item.name?.S
+        }));
+    }
+    const legacySpaceUrl = account.spaceURL?.S;
+    return legacySpaceUrl ? [{ url: legacySpaceUrl, type: "credential" }] : [];
+}
 
 async function getVerifier({ keyId, documentLoader }) {
     const { document } = await documentLoader(keyId);
@@ -111,6 +138,7 @@ export const handler = async (event) => {
         verified: true,
         email,
         controller: registeredDid,
-        space: account.spaceURL?.S
+        space: account.spaceURL?.S,
+        spaces: await getSpaces({ email, account })
     });
 };
