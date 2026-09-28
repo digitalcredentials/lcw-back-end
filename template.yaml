@@ -346,9 +346,9 @@ Resources:
                   S: '{% $now() %}'
             Next: RegisterSpace
           # Registers the wallet's own space in the wallet-spaces registry as
-          # type 'credential'. A failure here is caught rather than failing the
-          # whole registration: the space itself already exists, and login
-          # falls back to the account's legacy spaceURL until the row exists.
+          # type 'credential'. The registry is the authority on spaces, so a
+          # failure here fails the registration outright rather than leaving a
+          # half-registered account behind.
           RegisterSpace:
             Type: Task
             Resource: arn:aws:states:::dynamodb:putItem
@@ -367,10 +367,6 @@ Resources:
                   S: "{% $states.context.Execution.Input.recipientEmail & \"'s Space\" %}"
                 CreatedAt:
                   S: '{% $now() %}'
-            Catch:
-              - ErrorEquals:
-                  - States.ALL
-                Next: UploadInitialVCToS3
             Next: UploadInitialVCToS3
           UploadInitialVCToS3:
             Type: Task
