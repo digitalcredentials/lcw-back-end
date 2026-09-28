@@ -52,6 +52,7 @@ Resources:
         AllowMethods:
           - GET
           - POST
+          - DELETE
           - OPTIONS
         AllowHeaders:
           - '*'
@@ -136,9 +137,12 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref WalletTestTable
+          SPACES_TABLE_NAME: !Ref WalletSpacesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref WalletTestTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref WalletSpacesTable
       LoggingConfig:
         LogGroup: !Ref LoginFunctionLogGroup
       Events:
@@ -167,6 +171,85 @@ Resources:
       LogGroupName: /aws/lambda/lcw-login
       RetentionInDays: 30
 
+  # Manages the account's WAS spaces: create a typed space (bucket + registry
+  # row), list them, delete a batch space. Auth is the same zCap-invocation
+  # scheme as /login.
+  LcwSpacesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lcw-spaces
+      Description: Creates, lists, and deletes the account's typed WAS spaces
+      CodeUri: src/lcw-spaces/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      # Emptying a bucket on DELETE can outlast the login-style 10s.
+      Timeout: 30
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WalletTestTable
+          SPACES_TABLE_NAME: !Ref WalletSpacesTable
+          SPACE_URL_BASE: !Ref SpaceBaseUrl
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref WalletTestTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WalletSpacesTable
+        # Space buckets all share the dcc-was- prefix (see the state machine's
+        # GenerateBucketName), so bucket management is scoped to that prefix.
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:CreateBucket
+                - s3:PutObject
+                - s3:ListBucket
+                - s3:DeleteObject
+                - s3:DeleteBucket
+              Resource:
+                - arn:aws:s3:::dcc-was-*
+                - arn:aws:s3:::dcc-was-*/*
+      LoggingConfig:
+        LogGroup: !Ref SpacesFunctionLogGroup
+      Events:
+        CreateSpaceRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: POST
+            Path: /spaces
+        ListSpacesRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: GET
+            Path: /spaces
+        DeleteSpaceRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: DELETE
+            Path: /spaces
+    Metadata:
+      # Bundling resolves the CJS require of the ESM @interop/http-client at
+      # build time; the Lambda runtime refuses it at runtime (ERR_REQUIRE_ESM).
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: node22
+        Sourcemap: false
+        EntryPoints:
+          - index.mjs
+        External:
+          - '@aws-sdk/*'
+
+  SpacesFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/lcw-spaces
+      RetentionInDays: 30
+
   WalletAccountCreatorStateMachine:
     Type: AWS::Serverless::StateMachine
     Properties:
@@ -177,6 +260,7 @@ Resources:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
         SpaceUrlBase: !Ref SpaceBaseUrl
         AccountTable: !Ref WalletTestTable
+        SpacesTable: !Ref WalletSpacesTable
         FromEmail: !Ref FromEmail
       Definition:
         Comment: DCC LCW registration state machine
@@ -237,6 +321,34 @@ Resources:
                   S: "{% '${SpaceUrlBase}/' & $BucketName %}"
                 CreatedAt:
                   S: '{% $now() %}'
+            Next: RegisterSpace
+          # Registers the wallet's own space in the wallet-spaces registry as
+          # type 'credential'. The state machine's role is managed outside this
+          # template, so if it lacks putItem on the new table the failure is
+          # caught and registration continues — login falls back to the
+          # account's legacy spaceURL until the row exists.
+          RegisterSpace:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:putItem
+            Arguments:
+              TableName: ${SpacesTable}
+              Item:
+                spaceURL:
+                  S: "{% '${SpaceUrlBase}/' & $BucketName %}"
+                email:
+                  S: '{% $states.context.Execution.Input.recipientEmail %}'
+                did:
+                  S: '{% $states.context.Execution.Input.did %}'
+                type:
+                  S: credential
+                name:
+                  S: "{% $states.context.Execution.Input.recipientEmail & \"'s Space\" %}"
+                CreatedAt:
+                  S: '{% $now() %}'
+            Catch:
+              - ErrorEquals:
+                  - States.ALL
+                Next: UploadInitialVCToS3
             Next: UploadInitialVCToS3
           UploadInitialVCToS3:
             Type: Task
@@ -274,6 +386,31 @@ Resources:
       KeySchema:
         - AttributeName: email
           KeyType: HASH
+
+  # The spaces registry: one row per WAS space, keyed by the space URL (which
+  # is what the WAS server's authorizer resolves a controller DID from).
+  # `type` records what the space is used for: 'credential' (the wallet's own
+  # space) or 'batch' (a batch-issuance space).
+  WalletSpacesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: wallet-spaces
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: spaceURL
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: spaceURL
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: by-email
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
 
   FunctionLogGroup:
     Type: AWS::Logs::LogGroup
@@ -431,6 +568,9 @@ Outputs:
   LoginUrl:
     Description: URL for the zCap-authenticated login endpoint (POST)
     Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/login
+  SpacesUrl:
+    Description: URL for the zCap-authenticated spaces endpoint (POST/GET/DELETE)
+    Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/spaces
   StateMachineArn:
     Description: Wallet account creator state machine ARN
     Value: !Ref WalletAccountCreatorStateMachine
