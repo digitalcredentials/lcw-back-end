@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /Users/jameschartrand/Documents/github/dcc/aws-lambda-issuer && cat src/issuer/app.mjs)",
+      "Read(//Users/jameschartrand/Documents/github/dcc/aws-lambda-issuer/**)"
+    ]
+  }
+}

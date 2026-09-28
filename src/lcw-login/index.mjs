@@ -13,30 +13,20 @@ const dynamoClient = new DynamoDBClient();
 const TABLE_NAME = process.env.TABLE_NAME ?? "wallet-test";
 const SPACES_TABLE = process.env.SPACES_TABLE_NAME ?? "wallet-spaces";
 
-// The account's registered spaces, from the wallet-spaces registry. An
-// account created before the registry existed has no rows there yet, so fall
-// back to its single legacy spaceURL as the credential space.
-async function getSpaces({ email, account }) {
-    let items = [];
-    try {
-        ({ Items: items = [] } = await dynamoClient.send(new QueryCommand({
-            TableName: SPACES_TABLE,
-            IndexName: "by-email",
-            KeyConditionExpression: "email = :email",
-            ExpressionAttributeValues: { ":email": { S: email } }
-        })));
-    } catch (error) {
-        console.error("Error listing spaces:", error);
-    }
-    if (items.length) {
-        return items.map((item) => ({
-            url: item.spaceURL?.S,
-            type: item.type?.S,
-            name: item.name?.S
-        }));
-    }
-    const legacySpaceUrl = account.spaceURL?.S;
-    return legacySpaceUrl ? [{ url: legacySpaceUrl, type: "credential" }] : [];
+// The account's registered spaces, from the wallet-spaces registry — the
+// authority on spaces (every space is registered there at creation).
+async function getSpaces({ email }) {
+    const { Items: items = [] } = await dynamoClient.send(new QueryCommand({
+        TableName: SPACES_TABLE,
+        IndexName: "by-email",
+        KeyConditionExpression: "email = :email",
+        ExpressionAttributeValues: { ":email": { S: email } }
+    }));
+    return items.map((item) => ({
+        url: item.spaceURL?.S,
+        type: item.type?.S,
+        name: item.name?.S
+    }));
 }
 
 async function getVerifier({ keyId, documentLoader }) {
@@ -134,11 +124,22 @@ export const handler = async (event) => {
         return json(401, { error: "Login failed." });
     }
 
+    let spaces;
+    try {
+        spaces = await getSpaces({ email });
+    } catch (error) {
+        console.error("Error listing spaces:", error);
+        return json(500, { error: "Failed to look up spaces." });
+    }
+
     return json(200, {
         verified: true,
         email,
         controller: registeredDid,
-        space: account.spaceURL?.S,
-        spaces: await getSpaces({ email, account })
+        // The front end still reads the singular `space`: the account's
+        // credential space, now resolved from the registry rather than a
+        // spaceURL attribute on the account row.
+        space: spaces.find(({ type }) => type === "credential")?.url,
+        spaces
     });
 };
