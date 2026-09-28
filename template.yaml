@@ -255,7 +255,30 @@ Resources:
     Properties:
       Name: wallet-account-creator
       Type: STANDARD
-      Role: arn:aws:iam::747170788015:role/service-role/StepFunctions-wallet-account-creator-role-khki9937v
+      # The execution role is generated from these policies, so everything the
+      # state machine touches is granted here in the template (it previously
+      # used a pre-existing service role managed outside this stack).
+      Policies:
+        # Verification + confirmation emails, sent as the domain identity.
+        - Statement:
+            - Effect: Allow
+              Action: ses:SendEmail
+              Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}
+        # Space provisioning: every space bucket shares the dcc-was- prefix
+        # (see GenerateBucketName).
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:CreateBucket
+                - s3:PutObject
+              Resource:
+                - !Sub arn:${AWS::Partition}:s3:::dcc-was-*
+                - !Sub arn:${AWS::Partition}:s3:::dcc-was-*/*
+        # CreateAccount writes the account row; RegisterSpace the registry row.
+        - DynamoDBWritePolicy:
+            TableName: !Ref WalletTestTable
+        - DynamoDBWritePolicy:
+            TableName: !Ref WalletSpacesTable
       DefinitionSubstitutions:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
         SpaceUrlBase: !Ref SpaceBaseUrl
@@ -323,10 +346,9 @@ Resources:
                   S: '{% $now() %}'
             Next: RegisterSpace
           # Registers the wallet's own space in the wallet-spaces registry as
-          # type 'credential'. The state machine's role is managed outside this
-          # template, so if it lacks putItem on the new table the failure is
-          # caught and registration continues — login falls back to the
-          # account's legacy spaceURL until the row exists.
+          # type 'credential'. A failure here is caught rather than failing the
+          # whole registration: the space itself already exists, and login
+          # falls back to the account's legacy spaceURL until the row exists.
           RegisterSpace:
             Type: Task
             Resource: arn:aws:states:::dynamodb:putItem
