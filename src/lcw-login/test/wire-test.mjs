@@ -21,16 +21,28 @@ key.id = `${key.controller}#${key.fingerprint()}`;
 console.log("derived controller:", key.controller);
 
 const ddb = new DynamoDBClient({ region: "us-east-1" });
+// Identity in the accounts table, the space in the wallet-spaces registry -
+// the same split the registration state machine writes.
 await ddb.send(new PutItemCommand({
     TableName: "wallet-test",
     Item: {
         email: { S: EMAIL },
         did: { S: key.controller },
-        spaceURL: { S: SPACE_URL },
         CreatedAt: { S: new Date().toISOString() }
     }
 }));
-console.log("temp account registered in wallet-test");
+await ddb.send(new PutItemCommand({
+    TableName: "wallet-spaces",
+    Item: {
+        spaceURL: { S: SPACE_URL },
+        email: { S: EMAIL },
+        did: { S: key.controller },
+        type: { S: "credential" },
+        name: { S: `${EMAIL}'s Space` },
+        CreatedAt: { S: new Date().toISOString() }
+    }
+}));
+console.log("temp account + space registered");
 
 try {
     const json = { email: EMAIL };
@@ -73,5 +85,9 @@ try {
         TableName: "wallet-test",
         Key: { email: { S: EMAIL } }
     }));
-    console.log("temp account removed");
+    await ddb.send(new DeleteItemCommand({
+        TableName: "wallet-spaces",
+        Key: { spaceURL: { S: SPACE_URL } }
+    }));
+    console.log("temp account + space removed");
 }

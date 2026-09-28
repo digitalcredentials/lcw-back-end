@@ -46,12 +46,13 @@ async function signedEvent({ email }) {
 
 async function run(name, eventPromise, { registeredDid, spaceItems } = {}) {
     ddbMock.reset();
+    // The account row is identity only: email -> did.
     ddbMock.on(GetItemCommand).resolves(
         registeredDid
-            ? { Item: { email: { S: EMAIL }, did: { S: registeredDid }, spaceURL: { S: SPACE_URL } } }
+            ? { Item: { email: { S: EMAIL }, did: { S: registeredDid } } }
             : {}
     );
-    // The wallet-spaces registry; empty for legacy accounts.
+    // The wallet-spaces registry, the authority on the account's spaces.
     ddbMock.on(QueryCommand).resolves({ Items: spaceItems ?? [] });
     const response = await handler(await eventPromise);
     console.log(`\n== ${name}`);
@@ -70,17 +71,6 @@ await run("signed, email not registered -> 401", signedEvent({ email: EMAIL }));
 await run("signed, different DID registered -> 401", signedEvent({ email: EMAIL }), {
     registeredDid: "did:key:z6MkfDLjE5Kip9E7YRitEbrNAcCYi2AviAY8Ny7hoYnCSgav"
 });
-const legacy = await run("signed, matching DID, legacy account -> 200", signedEvent({ email: EMAIL }), {
-    registeredDid: did
-});
-// No registry rows: the single legacy spaceURL comes back as the credential space.
-const legacySpaces = JSON.parse(legacy.body).spaces;
-const legacyOk = legacy.statusCode === 200 &&
-    legacySpaces.length === 1 &&
-    legacySpaces[0].url === SPACE_URL &&
-    legacySpaces[0].type === "credential";
-console.log(`   spaces fallback ${legacyOk ? "ok" : "FAIL"}`);
-
 const registered = await run("signed, matching DID, registry rows -> 200", signedEvent({ email: EMAIL }), {
     registeredDid: did,
     spaceItems: [
@@ -88,10 +78,23 @@ const registered = await run("signed, matching DID, registry rows -> 200", signe
         { spaceURL: { S: `${SPACE_URL}-batch` }, type: { S: "batch" }, name: { S: "Conference 2026" } }
     ]
 });
-const registeredSpaces = JSON.parse(registered.body).spaces;
+// The singular `space` is derived from the registry's credential row.
+const registeredBody = JSON.parse(registered.body);
 const registeredOk = registered.statusCode === 200 &&
-    registeredSpaces.length === 2 &&
-    registeredSpaces.some(({ type, name }) => type === "batch" && name === "Conference 2026");
-console.log(`   spaces registry ${registeredOk ? "ok" : "FAIL"}`);
+    registeredBody.space === SPACE_URL &&
+    registeredBody.spaces.length === 2 &&
+    registeredBody.spaces.some(({ type, name }) => type === "batch" && name === "Conference 2026");
+console.log(`   space + spaces from registry ${registeredOk ? "ok" : "FAIL"}`);
 
-process.exit(legacyOk && registeredOk ? 0 : 1);
+// An account with no registered spaces still logs in; it just has none.
+const bare = await run("signed, matching DID, empty registry -> 200", signedEvent({ email: EMAIL }), {
+    registeredDid: did
+});
+const bareBody = JSON.parse(bare.body);
+const bareOk = bare.statusCode === 200 &&
+    bareBody.space === undefined &&
+    Array.isArray(bareBody.spaces) &&
+    bareBody.spaces.length === 0;
+console.log(`   empty registry ${bareOk ? "ok" : "FAIL"}`);
+
+process.exit(registeredOk && bareOk ? 0 : 1);

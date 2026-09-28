@@ -36,7 +36,7 @@ Parameters:
     Description: >
       Base URL for Wallet Attached Storage space URLs (typically ending in
       /space). At registration the state machine appends the account's space
-      id after a slash and stores the result as the account's spaceURL.
+      id after a slash and registers the result in the wallet-spaces registry.
     Default: https://was.example.org/space
 
 Resources:
@@ -335,13 +335,13 @@ Resources:
             Resource: arn:aws:states:::dynamodb:putItem
             Arguments:
               TableName: ${AccountTable}
+              # The account row is identity only (email -> did); the account's
+              # spaces live in the wallet-spaces registry (see RegisterSpace).
               Item:
                 email:
                   S: '{% $states.context.Execution.Input.recipientEmail %}'
                 did:
                   S: '{% $states.context.Execution.Input.did %}'
-                spaceURL:
-                  S: "{% '${SpaceUrlBase}/' & $BucketName %}"
                 CreatedAt:
                   S: '{% $now() %}'
             Next: RegisterSpace
