@@ -22,10 +22,10 @@ async function getSpaces({ email }) {
         KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: { ":email": { S: email } }
     }));
+    // Display names live in each space's WAS description document, not here
     return items.map((item) => ({
         url: item.spaceURL?.S,
-        type: item.type?.S,
-        name: item.name?.S
+        type: item.type?.S
     }));
 }
 
