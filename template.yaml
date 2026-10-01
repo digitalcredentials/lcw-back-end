@@ -328,7 +328,7 @@ Resources:
               Key: metadata/description.json
               ContentType: application/json
               Body: >-
-                {% $string({"name": $states.context.Execution.Input.recipientEmail & "'s Space", "type": ["Space"], "controller": $states.context.Execution.Input.did, "createdBy": $states.context.Execution.Input.did}) %}
+                {% $string({"name": "Main Space", "type": ["Space"], "controller": $states.context.Execution.Input.did, "createdBy": $states.context.Execution.Input.did}) %}
             Next: CreateAccount
           CreateAccount:
             Type: Task
