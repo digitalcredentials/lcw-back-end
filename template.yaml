@@ -363,8 +363,6 @@ Resources:
                   S: '{% $states.context.Execution.Input.did %}'
                 type:
                   S: credential
-                name:
-                  S: "{% $states.context.Execution.Input.recipientEmail & \"'s Space\" %}"
                 CreatedAt:
                   S: '{% $now() %}'
             Next: UploadInitialVCToS3

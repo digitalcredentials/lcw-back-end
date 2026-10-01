@@ -151,6 +151,7 @@ const created = await run("POST signed, matching DID -> 201",
         bucketCalls.length === 1 &&
         item?.type?.S === "batch" &&
         item?.did?.S === did &&
+        item?.name === undefined &&
         item?.spaceURL?.S === body.space;
     if (!ok) failures++;
     console.log(`${ok ? "ok  " : "FAIL"} POST created bucket + registered typed space row`);
@@ -161,11 +162,13 @@ const listed = await run("GET signed -> 200",
     { expect: 200, mocks: { registeredDid: did } });
 {
     const { spaces } = JSON.parse(listed.body);
+    // Display names live in the WAS description documents, not the registry
     const ok = spaces.length === 2 &&
         spaces.some(({ type }) => type === "credential") &&
-        spaces.some(({ type, name }) => type === "batch" && name === "Conference 2026");
+        spaces.some(({ type }) => type === "batch") &&
+        spaces.every((space) => !("name" in space));
     if (!ok) failures++;
-    console.log(`${ok ? "ok  " : "FAIL"} GET returns both typed spaces`);
+    console.log(`${ok ? "ok  " : "FAIL"} GET returns both typed spaces without names`);
 }
 
 await run("DELETE signed, batch space -> 204",

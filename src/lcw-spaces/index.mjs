@@ -43,11 +43,12 @@ const json = (statusCode, body) => ({
     body: JSON.stringify(body)
 });
 
+// The registry holds authorization and lookup data only; a space's display
+// name lives in its WAS description document.
 function spaceFromItem(item) {
     return {
         url: item.spaceURL?.S,
         type: item.type?.S,
-        name: item.name?.S,
         createdAt: item.CreatedAt?.S
     };
 }
@@ -78,7 +79,6 @@ async function createSpace({ email, did, type, name }) {
             email: { S: email },
             did: { S: did },
             type: { S: type },
-            name: { S: spaceName },
             CreatedAt: { S: new Date().toISOString() }
         }
     }));
