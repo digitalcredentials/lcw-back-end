@@ -171,84 +171,10 @@ Resources:
       LogGroupName: /aws/lambda/lcw-login
       RetentionInDays: 30
 
-  # Manages the account's WAS spaces: create a typed space (bucket + registry
-  # row), list them, delete a batch space. Auth is the same zCap-invocation
-  # scheme as /login.
-  LcwSpacesFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: lcw-spaces
-      Description: Creates, lists, and deletes the account's typed WAS spaces
-      CodeUri: src/lcw-spaces/
-      Handler: index.handler
-      Runtime: nodejs24.x
-      Architectures:
-        - x86_64
-      MemorySize: 256
-      # Emptying a bucket on DELETE can outlast the login-style 10s.
-      Timeout: 30
-      Environment:
-        Variables:
-          TABLE_NAME: !Ref WalletTestTable
-          SPACES_TABLE_NAME: !Ref WalletSpacesTable
-          SPACE_URL_BASE: !Ref SpaceBaseUrl
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref WalletTestTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref WalletSpacesTable
-        # Space buckets all share the dcc-was- prefix (see the state machine's
-        # GenerateBucketName), so bucket management is scoped to that prefix.
-        - Statement:
-            - Effect: Allow
-              Action:
-                - s3:CreateBucket
-                - s3:PutObject
-                - s3:ListBucket
-                - s3:DeleteObject
-                - s3:DeleteBucket
-              Resource:
-                - arn:aws:s3:::dcc-was-*
-                - arn:aws:s3:::dcc-was-*/*
-      LoggingConfig:
-        LogGroup: !Ref SpacesFunctionLogGroup
-      Events:
-        CreateSpaceRoute:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ConfirmationHttpApi
-            Method: POST
-            Path: /spaces
-        ListSpacesRoute:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ConfirmationHttpApi
-            Method: GET
-            Path: /spaces
-        DeleteSpaceRoute:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ConfirmationHttpApi
-            Method: DELETE
-            Path: /spaces
-    Metadata:
-      # Bundling resolves the CJS require of the ESM @interop/http-client at
-      # build time; the Lambda runtime refuses it at runtime (ERR_REQUIRE_ESM).
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: false
-        Target: node22
-        Sourcemap: false
-        EntryPoints:
-          - index.mjs
-        External:
-          - '@aws-sdk/*'
-
-  SpacesFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /aws/lambda/lcw-spaces
-      RetentionInDays: 30
+  # The /spaces API (create, list, delete the account's WAS spaces) moved to
+  # the was-server-aws stack, where it implements the WAS spec's space registry
+  # endpoints with coupon-gated creation. This stack still owns the
+  # wallet-spaces registry table and seeds the first space at registration.
 
   WalletAccountCreatorStateMachine:
     Type: AWS::Serverless::StateMachine
@@ -342,6 +268,10 @@ Resources:
                   S: '{% $states.context.Execution.Input.recipientEmail %}'
                 did:
                   S: '{% $states.context.Execution.Input.did %}'
+                # The registration code the user provided, kept as the token
+                # the WAS server's space-creation coupon is checked against.
+                token:
+                  S: '{% $states.context.Execution.Input.registrationCode %}'
                 CreatedAt:
                   S: '{% $now() %}'
             Next: RegisterSpace

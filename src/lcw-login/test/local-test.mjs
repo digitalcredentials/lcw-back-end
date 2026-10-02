@@ -46,10 +46,11 @@ async function signedEvent({ email }) {
 
 async function run(name, eventPromise, { registeredDid, spaceItems } = {}) {
     ddbMock.reset();
-    // The account row is identity only: email -> did.
+    // The account row: email -> did, plus the registration token the WAS
+    // server's space-creation coupon is checked against.
     ddbMock.on(GetItemCommand).resolves(
         registeredDid
-            ? { Item: { email: { S: EMAIL }, did: { S: registeredDid } } }
+            ? { Item: { email: { S: EMAIL }, did: { S: registeredDid }, token: { S: "secret-code" } } }
             : {}
     );
     // The wallet-spaces registry, the authority on the account's spaces.
@@ -80,11 +81,14 @@ const registered = await run("signed, matching DID, registry rows -> 200", signe
 });
 // The singular `space` is derived from the registry's credential row.
 const registeredBody = JSON.parse(registered.body);
+// Display names live in each space's WAS description document, so the
+// registry rows come back without one.
 const registeredOk = registered.statusCode === 200 &&
     registeredBody.space === SPACE_URL &&
+    registeredBody.token === "secret-code" &&
     registeredBody.spaces.length === 2 &&
-    registeredBody.spaces.some(({ type, name }) => type === "batch" && name === "Conference 2026");
-console.log(`   space + spaces from registry ${registeredOk ? "ok" : "FAIL"}`);
+    registeredBody.spaces.some(({ type, name }) => type === "batch" && name === undefined);
+console.log(`   space + spaces + token from registry ${registeredOk ? "ok" : "FAIL"}`);
 
 // An account with no registered spaces still logs in; it just has none.
 const bare = await run("signed, matching DID, empty registry -> 200", signedEvent({ email: EMAIL }), {

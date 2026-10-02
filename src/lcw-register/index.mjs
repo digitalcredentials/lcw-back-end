@@ -37,11 +37,13 @@ export const handler = async (event) => {
     }
 
     // 3. Start the registration state machine; it emails the confirmation
-    // link and, once confirmed, provisions the account
+    // link and, once confirmed, provisions the account. The registration code
+    // is passed through so it can be stored on the account row as the token
+    // the WAS server's space-creation coupon is checked against.
     try {
         await sfnClient.send(new StartExecutionCommand({
             stateMachineArn: process.env.STATE_MACHINE_ARN,
-            input: JSON.stringify({ recipientEmail: email, did })
+            input: JSON.stringify({ recipientEmail: email, did, registrationCode })
         }));
     } catch (error) {
         console.error("Error starting registration execution:", error);
