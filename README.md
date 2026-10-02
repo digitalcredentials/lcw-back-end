@@ -8,13 +8,18 @@ and deployed as a single CloudFormation stack.
 
 A registration flow and a zCap-authenticated login endpoint:
 
+- **`lcw-register`** — a Node.js Lambda invoked via `POST /register` with
+  `{email, did, registrationCode}`. It gates on the deployment's registration
+  code and starts the registration state machine, passing the code through so
+  it is stored on the account.
 - **`wallet-account-creator`** — a Step Functions state machine that registers
   an account: it emails the user a confirmation link (pausing on a task
-  token), then creates an S3 bucket for the account's
+  token), then creates an S3 bucket for the account's first
   [Wallet Attached Storage](https://w3c-ccg.github.io/wallet-attached-storage-spec/)
-  space, records the account (email, DID, space URL) in the `wallet-test`
-  DynamoDB table, uploads an initial file, and emails the user their space
-  URL.
+  space, seeds its description document (named **Main Space**), records the
+  account (email → `did` plus the registration `token`) in the `wallet-test`
+  DynamoDB table, registers the space in the `wallet-spaces` registry, and
+  emails the user a confirmation.
 - **`registration-email-confirmation`** — a Node.js Lambda invoked via
   `GET /confirm?token=...` on an API Gateway HTTP API. When the user clicks
   the confirmation link, it calls `states:SendTaskSuccess` with the task token
@@ -23,15 +28,24 @@ A registration flow and a zCap-authenticated login endpoint:
   body containing an `email`. It verifies the request's
   [HTTP-signature capability invocation](https://github.com/interop-alliance/http-signature-zcap-verify)
   headers against a root capability controlled by the DID registered for that
-  email, and on success returns the account's space URL. All rejections
+  email, and on success returns the account's registration `token` (the WAS
+  server's space-creation coupon), its credential `space` URL, and its
+  `spaces` from the registry (listed by the registered DID). All rejections
   return a generic 401.
 - **`wallet-test`** — the DynamoDB accounts table (partition key `email`,
-  on-demand billing) holding each account's `did`, `spaceURL`, and
+  on-demand billing) holding each account's `did`, registration `token`, and
   `CreatedAt`.
+- **`wallet-spaces`** — the spaces registry (partition key `spaceURL`, GSI
+  `by-did`): one row per WAS space, keyed to its controller DID, carrying the
+  space's `type` (`credential` | `batch`). Rows carry no email. This stack
+  owns the table; the [was-server-aws](../was-server-aws) stack reads it to
+  authorize space requests and writes it when provisioning spaces through its
+  `/spaces` endpoints (the spaces API itself lives there, not here).
 
 | Path | Purpose |
 | --- | --- |
-| `template.yaml` | SAM template: the HTTP API, both Lambdas, the state machine, the DynamoDB table, IAM policies, and log groups |
+| `template.yaml` | SAM template: the HTTP API, the Lambdas, the state machine, the DynamoDB tables, IAM policies, and log groups |
+| `src/lcw-register/index.mjs` | Registration Lambda handler |
 | `src/registration-email-confirmation/index.mjs` | Confirmation Lambda handler |
 | `src/lcw-login/index.mjs` | Login Lambda handler |
 | `src/lcw-login/test/local-test.mjs` | Local test for the login handler |
@@ -50,12 +64,14 @@ A registration flow and a zCap-authenticated login endpoint:
   rule set, so after the first deploy run
   `aws ses set-active-receipt-rule-set --rule-set-name lcw-sandbox-inbound`.
 - **`RegistrationCode`** — code the registration form must supply (NoEcho;
-  the default is only for local development).
+  the default is only for local development). The code the user provides is
+  stored on the account row as `token`, which the WAS server requires as the
+  coupon when creating further spaces.
 - **`SpaceBaseUrl`** — base URL for Wallet Attached Storage space URLs
   (typically ending in `/space`). At registration the state machine appends
-  the account's space id after a slash and stores the result as the account's
-  `spaceURL`. The default is a placeholder; set the real WAS server URL at
-  deploy time:
+  the account's space id after a slash and registers the result in the
+  `wallet-spaces` registry. The default is a placeholder; set the real WAS
+  server URL at deploy time:
 
   ```bash
   sam deploy --parameter-overrides SpaceBaseUrl=https://your-was-server/space
