@@ -345,22 +345,14 @@ Resources:
       AttributeDefinitions:
         - AttributeName: spaceURL
           AttributeType: S
-        - AttributeName: email
-          AttributeType: S
         - AttributeName: did
           AttributeType: S
       KeySchema:
         - AttributeName: spaceURL
           KeyType: HASH
       GlobalSecondaryIndexes:
-        - IndexName: by-email
-          KeySchema:
-            - AttributeName: email
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-        # The WAS server's GET /spaces lists a caller's spaces by the
-        # controller DID the invocation authenticated.
+        # Both /login and the WAS server's GET /spaces list a caller's spaces
+        # by the controller DID; the registry carries no email.
         - IndexName: by-did
           KeySchema:
             - AttributeName: did
