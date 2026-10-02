@@ -284,11 +284,11 @@ Resources:
             Resource: arn:aws:states:::dynamodb:putItem
             Arguments:
               TableName: ${SpacesTable}
+              # Registry rows are keyed to the controller DID alone; the
+              # account's email stays out of the registry.
               Item:
                 spaceURL:
                   S: "{% '${SpaceUrlBase}/' & $BucketName %}"
-                email:
-                  S: '{% $states.context.Execution.Input.recipientEmail %}'
                 did:
                   S: '{% $states.context.Execution.Input.did %}'
                 type:
