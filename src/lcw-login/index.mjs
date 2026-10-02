@@ -136,6 +136,10 @@ export const handler = async (event) => {
         verified: true,
         email,
         controller: registeredDid,
+        // The registration token, which the WAS server requires as the coupon
+        // when creating a space. Returned only to the account holder: the
+        // login just verified their signature.
+        token: account?.token?.S,
         // The front end still reads the singular `space`: the account's
         // credential space, now resolved from the registry rather than a
         // spaceURL attribute on the account row.
