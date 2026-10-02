@@ -14,13 +14,14 @@ const TABLE_NAME = process.env.TABLE_NAME ?? "wallet-test";
 const SPACES_TABLE = process.env.SPACES_TABLE_NAME ?? "wallet-spaces";
 
 // The account's registered spaces, from the wallet-spaces registry — the
-// authority on spaces (every space is registered there at creation).
-async function getSpaces({ email }) {
+// authority on spaces (every space is registered there at creation). Rows are
+// keyed to the account's registered DID; the registry carries no email.
+async function getSpaces({ did }) {
     const { Items: items = [] } = await dynamoClient.send(new QueryCommand({
         TableName: SPACES_TABLE,
-        IndexName: "by-email",
-        KeyConditionExpression: "email = :email",
-        ExpressionAttributeValues: { ":email": { S: email } }
+        IndexName: "by-did",
+        KeyConditionExpression: "did = :did",
+        ExpressionAttributeValues: { ":did": { S: did } }
     }));
     // Display names live in each space's WAS description document, not here
     return items.map((item) => ({
@@ -126,7 +127,7 @@ export const handler = async (event) => {
 
     let spaces;
     try {
-        spaces = await getSpaces({ email });
+        spaces = await getSpaces({ did: registeredDid });
     } catch (error) {
         console.error("Error listing spaces:", error);
         return json(500, { error: "Failed to look up spaces." });

@@ -284,11 +284,11 @@ Resources:
             Resource: arn:aws:states:::dynamodb:putItem
             Arguments:
               TableName: ${SpacesTable}
+              # Registry rows are keyed to the controller DID alone; the
+              # account's email stays out of the registry.
               Item:
                 spaceURL:
                   S: "{% '${SpaceUrlBase}/' & $BucketName %}"
-                email:
-                  S: '{% $states.context.Execution.Input.recipientEmail %}'
                 did:
                   S: '{% $states.context.Execution.Input.did %}'
                 type:
@@ -347,6 +347,8 @@ Resources:
           AttributeType: S
         - AttributeName: email
           AttributeType: S
+        - AttributeName: did
+          AttributeType: S
       KeySchema:
         - AttributeName: spaceURL
           KeyType: HASH
@@ -354,6 +356,14 @@ Resources:
         - IndexName: by-email
           KeySchema:
             - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        # The WAS server's GET /spaces lists a caller's spaces by the
+        # controller DID the invocation authenticated.
+        - IndexName: by-did
+          KeySchema:
+            - AttributeName: did
               KeyType: HASH
           Projection:
             ProjectionType: ALL
