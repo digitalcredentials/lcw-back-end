@@ -23,10 +23,12 @@ async function getSpaces({ did }) {
         KeyConditionExpression: "did = :did",
         ExpressionAttributeValues: { ":did": { S: did } }
     }));
-    // Display names live in each space's WAS description document, not here
+    // `type` is the Space's type array; `name` is mirrored from the Space
+    // Metadata by the WAS server.
     return items.map((item) => ({
         url: item.spaceURL?.S,
-        type: item.type?.S
+        type: item.type?.L?.map((entry) => entry.S) ?? ["Space"],
+        ...(item.name?.S !== undefined && { name: item.name.S })
     }));
 }
 
@@ -142,9 +144,8 @@ export const handler = async (event) => {
         // login just verified their signature.
         token: account?.token?.S,
         // The front end still reads the singular `space`: the account's
-        // credential space, now resolved from the registry rather than a
-        // spaceURL attribute on the account row.
-        space: spaces.find(({ type }) => type === "credential")?.url,
+        // first credential space (one whose type is not a batch space).
+        space: spaces.find(({ type }) => !type.includes("BatchSpace"))?.url,
         spaces
     });
 };

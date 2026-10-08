@@ -35,9 +35,8 @@ await ddb.send(new PutItemCommand({
     TableName: "wallet-spaces",
     Item: {
         spaceURL: { S: SPACE_URL },
-        email: { S: EMAIL },
         did: { S: key.controller },
-        type: { S: "credential" },
+        type: { L: [{ S: "Space" }] },
         name: { S: `${EMAIL}'s Space` },
         CreatedAt: { S: new Date().toISOString() }
     }

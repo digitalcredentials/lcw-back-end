@@ -16,7 +16,8 @@ A registration flow and a zCap-authenticated login endpoint:
   an account: it emails the user a confirmation link (pausing on a task
   token), then creates an S3 bucket for the account's first
   [Wallet Attached Storage](https://w3c-ccg.github.io/wallet-attached-storage-spec/)
-  space, seeds its description document (named **Main Space**), records the
+  space, seeds its Space Metadata object (`meta/space.json`, named **Main
+  Space**), records the
   account (email → `did` plus the registration `token`) in the `wallet-test`
   DynamoDB table, registers the space in the `wallet-spaces` registry, and
   emails the user a confirmation.

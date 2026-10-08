@@ -242,22 +242,21 @@ Resources:
             Resource: arn:aws:states:::aws-sdk:s3:createBucket
             Arguments:
               Bucket: '{% $BucketName %}'
-            Next: SeedSpaceDescription
-          # The WAS server reads the space description from
-          # metadata/description.json; without one the UI falls back to the
-          # bare space id. The Body is the object itself, NOT $string(...):
+            Next: SeedSpaceMetadata
+          # The WAS server (spec v0.5) reads the Space Metadata object from
+          # meta/space.json. The Body is the object itself, NOT $string(...):
           # the aws-sdk integration JSON-serializes the Body value it sends,
           # so a pre-stringified document comes out double-encoded (a JSON
           # string containing JSON), which has no readable name.
-          SeedSpaceDescription:
+          SeedSpaceMetadata:
             Type: Task
             Resource: arn:aws:states:::aws-sdk:s3:putObject
             Arguments:
               Bucket: '{% $BucketName %}'
-              Key: metadata/description.json
+              Key: meta/space.json
               ContentType: application/json
               Body: >-
-                {% {"name": "Main Space", "type": ["Space"], "controller": $states.context.Execution.Input.did, "createdBy": $states.context.Execution.Input.did} %}
+                {% {"id": $BucketName, "type": ["Space"], "name": "Main Space", "controller": $states.context.Execution.Input.did, "createdBy": $states.context.Execution.Input.did, "createdAt": $now(), "updatedAt": $now()} %}
             Next: CreateAccount
           CreateAccount:
             Type: Task
@@ -278,10 +277,12 @@ Resources:
                 CreatedAt:
                   S: '{% $now() %}'
             Next: RegisterSpace
-          # Registers the wallet's own space in the wallet-spaces registry as
-          # type 'credential'. The registry is the authority on spaces, so a
-          # failure here fails the registration outright rather than leaving a
-          # half-registered account behind.
+          # Registers the wallet's own space in the wallet-spaces registry. The
+          # registry is the authority on spaces, so a failure here fails the
+          # registration outright rather than leaving a half-registered
+          # account behind. `type` is the Space's type array (a batch space
+          # would carry "BatchSpace" too) and `name` mirrors the metadata's
+          # name so listings can show it without reading the bucket.
           RegisterSpace:
             Type: Task
             Resource: arn:aws:states:::dynamodb:putItem
@@ -295,17 +296,12 @@ Resources:
                 did:
                   S: '{% $states.context.Execution.Input.did %}'
                 type:
-                  S: credential
+                  L:
+                    - S: Space
+                name:
+                  S: Main Space
                 CreatedAt:
                   S: '{% $now() %}'
-            Next: UploadInitialVCToS3
-          UploadInitialVCToS3:
-            Type: Task
-            Resource: arn:aws:states:::aws-sdk:s3:putObject
-            Arguments:
-              Bucket: '{% $BucketName %}'
-              Key: credentials/hello-world.txt
-              Body: This file was generated directly by an AWS Step Functions workflow.
             Next: SendEmailConf
           SendEmailConf:
             Type: Task
@@ -338,8 +334,8 @@ Resources:
 
   # The spaces registry: one row per WAS space, keyed by the space URL (which
   # is what the WAS server's authorizer resolves a controller DID from).
-  # `type` records what the space is used for: 'credential' (the wallet's own
-  # space) or 'batch' (a batch-issuance space).
+  # `type` is the Space's type array (["Space"], or ["Space", "BatchSpace"]
+  # for a batch-issuance space) and `name` mirrors the Space Metadata's name.
   WalletSpacesTable:
     Type: AWS::DynamoDB::Table
     Properties:
