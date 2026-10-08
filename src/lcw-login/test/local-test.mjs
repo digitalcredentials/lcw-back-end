@@ -75,19 +75,18 @@ await run("signed, different DID registered -> 401", signedEvent({ email: EMAIL 
 const registered = await run("signed, matching DID, registry rows -> 200", signedEvent({ email: EMAIL }), {
     registeredDid: did,
     spaceItems: [
-        { spaceURL: { S: SPACE_URL }, type: { S: "credential" }, name: { S: "Wallet space" } },
-        { spaceURL: { S: `${SPACE_URL}-batch` }, type: { S: "batch" }, name: { S: "Conference 2026" } }
+        { spaceURL: { S: SPACE_URL }, type: { L: [{ S: "Space" }] }, name: { S: "Wallet space" } },
+        { spaceURL: { S: `${SPACE_URL}-batch` }, type: { L: [{ S: "Space" }, { S: "BatchSpace" }] }, name: { S: "Conference 2026" } }
     ]
 });
-// The singular `space` is derived from the registry's credential row.
+// The singular `space` is the first non-batch row; names and type arrays
+// come straight from the registry.
 const registeredBody = JSON.parse(registered.body);
-// Display names live in each space's WAS description document, so the
-// registry rows come back without one.
 const registeredOk = registered.statusCode === 200 &&
     registeredBody.space === SPACE_URL &&
     registeredBody.token === "secret-code" &&
     registeredBody.spaces.length === 2 &&
-    registeredBody.spaces.some(({ type, name }) => type === "batch" && name === undefined);
+    registeredBody.spaces.some(({ type, name }) => type.includes("BatchSpace") && name === "Conference 2026");
 console.log(`   space + spaces + token from registry ${registeredOk ? "ok" : "FAIL"}`);
 
 // An account with no registered spaces still logs in; it just has none.
