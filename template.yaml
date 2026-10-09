@@ -12,8 +12,16 @@ Parameters:
     Default: lcw-sandbox.org
   WalletUrl:
     Type: String
-    Description: The wallet's URL, linked from the registration-complete email.
+    Description: The wallet's URL, linked from the registration emails and the confirmation page.
     Default: https://lcw-sandbox.org
+  OrgName:
+    Type: String
+    Description: The organisation named in the emails and the confirmation page.
+    Default: Digital Credentials Commons
+  LogoUrl:
+    Type: String
+    Description: The organisation's logo, shown in the emails and the confirmation page.
+    Default: https://digitalcredentials.github.io/badge-assets/dcc-commons-mark.png
   HostedZoneId:
     Type: String
     Description: Route 53 hosted zone id for DomainName.
@@ -75,6 +83,11 @@ Resources:
       Timeout: 3
       LoggingConfig:
         LogGroup: !Ref FunctionLogGroup
+      Environment:
+        Variables:
+          WALLET_URL: !Ref WalletUrl
+          ORG_NAME: !Ref OrgName
+          LOGO_URL: !Ref LogoUrl
       Policies:
         - Statement:
             - Effect: Allow
@@ -213,6 +226,21 @@ Resources:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
         SpaceUrlBase: !Ref SpaceBaseUrl
         WalletUrl: !Ref WalletUrl
+        # The HTML emails share one layout: the organisation's logo and name
+        # at the top, a footer at the bottom. CloudFormation pastes these into
+        # the JSON-serialized definition verbatim, so they use single-quoted
+        # attributes only: a double quote would end the JSON string.
+        EmailHead: !Sub >-
+          <!doctype html><html><body style='margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1f2937;'>
+          <table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='background:#f3f4f6;padding:24px 0;'><tr><td align='center'>
+          <table role='presentation' width='560' cellpadding='0' cellspacing='0' style='max-width:560px;width:100%;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;'>
+          <tr><td style='padding:24px 32px 8px 32px;'><img src='${LogoUrl}' alt='' width='44' height='44' style='vertical-align:middle;border:0;'><span style='font-size:16px;font-weight:600;vertical-align:middle;margin-left:10px;'>${OrgName}</span></td></tr>
+          <tr><td style='padding:8px 32px 32px 32px;font-size:16px;line-height:1.5;'>
+        EmailFoot: !Sub >-
+          </td></tr>
+          <tr><td style='padding:16px 32px;border-top:1px solid #e5e7eb;font-size:13px;color:#6b7280;'>${OrgName} &middot; Learner Credential Wallet</td></tr>
+          </table></td></tr></table></body></html>
+        ButtonStyle: display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;
         AccountTable: !Ref WalletTestTable
         SpacesTable: !Ref WalletSpacesTable
         FromEmail: !Ref FromEmail
@@ -232,10 +260,16 @@ Resources:
               Content:
                 Simple:
                   Subject:
-                    Data: DCC LCW - Please Confirm Your Email Address
+                    Data: Please confirm your email address
                   Body:
+                    Text:
+                      Data: "{% 'Please confirm your email address to finish setting up your Learner Credential Wallet by opening this link: ${ConfirmUrl}?token=' & $encodeUrlComponent($states.context.Task.Token) %}"
                     Html:
-                      Data: "{% 'Please click the link to approve: ${ConfirmUrl}?token=' & $states.context.Task.Token %}"
+                      Data: >-
+                        {% "${EmailHead}<h1 style='font-size:22px;margin:16px 0;'>Confirm your email address</h1>
+                        <p>Thank you for registering for a Learner Credential Wallet. Please confirm that this is your email address to finish setting up your account.</p>
+                        <p style='margin:24px 0;'><a href='${ConfirmUrl}?token=" & $encodeUrlComponent($states.context.Task.Token) & "' style='${ButtonStyle}'>Confirm my email</a></p>
+                        <p style='font-size:14px;color:#6b7280;'>If you did not register, you can ignore this email.</p>${EmailFoot}" %}
             Next: GenerateBucketName
           GenerateBucketName:
             Type: Pass
@@ -319,10 +353,15 @@ Resources:
               Content:
                 Simple:
                   Subject:
-                    Data: DCC LCW - Your Wallet is Ready
+                    Data: Your wallet is ready
                   Body:
                     Text:
                       Data: "You have been registered! Open your wallet at ${WalletUrl} and sign in with your email and the passphrase you chose."
+                    Html:
+                      Data: >-
+                        ${EmailHead}<h1 style='font-size:22px;margin:16px 0;'>Your wallet is ready</h1>
+                        <p>Your Learner Credential Wallet account is set up. Sign in with your email address and the passphrase you chose.</p>
+                        <p style='margin:24px 0;'><a href='${WalletUrl}' style='${ButtonStyle}'>Open my wallet</a></p>${EmailFoot}
             End: true
 
   WalletTestTable:
