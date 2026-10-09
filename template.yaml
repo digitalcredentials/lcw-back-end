@@ -10,6 +10,10 @@ Parameters:
     Type: String
     Description: The registered domain whose hosted zone receives the SES DNS records.
     Default: lcw-sandbox.org
+  WalletUrl:
+    Type: String
+    Description: The wallet's URL, linked from the registration-complete email.
+    Default: https://lcw-sandbox.org
   HostedZoneId:
     Type: String
     Description: Route 53 hosted zone id for DomainName.
@@ -208,6 +212,7 @@ Resources:
       DefinitionSubstitutions:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
         SpaceUrlBase: !Ref SpaceBaseUrl
+        WalletUrl: !Ref WalletUrl
         AccountTable: !Ref WalletTestTable
         SpacesTable: !Ref WalletSpacesTable
         FromEmail: !Ref FromEmail
@@ -317,7 +322,7 @@ Resources:
                     Data: DCC LCW - Your Wallet is Ready
                   Body:
                     Text:
-                      Data: "{% 'You have been registered! Your storage space: ${SpaceUrlBase}/' & $BucketName %}"
+                      Data: "You have been registered! Open your wallet at ${WalletUrl} and sign in with your email and the passphrase you chose."
             End: true
 
   WalletTestTable:
