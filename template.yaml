@@ -6,6 +6,14 @@ Description: >
   the task token from the confirmation link back via SendTaskSuccess.
 
 Parameters:
+  # The PWS server's spaces registry (the was-server stack's was-spaces
+  # table), which registration still writes and login still reads, by name.
+  # An interim: stage 3 of the did:webvh work makes registration coupon-based
+  # (the wallet creates its own space) and login identity-only, and this
+  # parameter goes with it.
+  SpacesTableName:
+    Type: String
+    Default: was-spaces
   DomainName:
     Type: String
     Description: The registered domain whose hosted zone receives the SES DNS records.
@@ -48,7 +56,7 @@ Parameters:
     Description: >
       Base URL for Wallet Attached Storage space URLs (typically ending in
       /space). At registration the state machine appends the account's space
-      id after a slash and registers the result in the wallet-spaces registry.
+      id after a slash and registers the result in the PWS server's spaces registry.
     Default: https://was.example.org/space
 
 Resources:
@@ -154,12 +162,12 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref WalletTestTable
-          SPACES_TABLE_NAME: !Ref WalletSpacesTable
+          SPACES_TABLE_NAME: !Ref SpacesTableName
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref WalletTestTable
         - DynamoDBReadPolicy:
-            TableName: !Ref WalletSpacesTable
+            TableName: !Ref SpacesTableName
       LoggingConfig:
         LogGroup: !Ref LoginFunctionLogGroup
       Events:
@@ -190,8 +198,9 @@ Resources:
 
   # The /spaces API (create, list, delete the account's WAS spaces) moved to
   # the was-server-aws stack, where it implements the WAS spec's space registry
-  # endpoints with coupon-gated creation. This stack still owns the
-  # wallet-spaces registry table and seeds the first space at registration.
+  # endpoints with coupon-gated creation and owns the spaces registry. This
+  # stack still seeds the first space at registration, writing the registry
+  # by name (SpacesTableName), until stage 3 of the did:webvh work.
 
   WalletAccountCreatorStateMachine:
     Type: AWS::Serverless::StateMachine
@@ -221,7 +230,7 @@ Resources:
         - DynamoDBWritePolicy:
             TableName: !Ref WalletTestTable
         - DynamoDBWritePolicy:
-            TableName: !Ref WalletSpacesTable
+            TableName: !Ref SpacesTableName
       DefinitionSubstitutions:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
         SpaceUrlBase: !Ref SpaceBaseUrl
@@ -242,7 +251,7 @@ Resources:
           </table></td></tr></table></body></html>
         ButtonStyle: display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;
         AccountTable: !Ref WalletTestTable
-        SpacesTable: !Ref WalletSpacesTable
+        SpacesTable: !Ref SpacesTableName
         FromEmail: !Ref FromEmail
       Definition:
         Comment: DCC LCW registration state machine
@@ -303,7 +312,7 @@ Resources:
             Arguments:
               TableName: ${AccountTable}
               # The account row is identity only (email -> did); the account's
-              # spaces live in the wallet-spaces registry (see RegisterSpace).
+              # spaces live in the PWS server's spaces registry (see RegisterSpace).
               Item:
                 email:
                   S: '{% $states.context.Execution.Input.recipientEmail %}'
@@ -316,7 +325,7 @@ Resources:
                 CreatedAt:
                   S: '{% $now() %}'
             Next: RegisterSpace
-          # Registers the wallet's own space in the wallet-spaces registry. The
+          # Registers the wallet's own space in the PWS server's spaces registry. The
           # registry is the authority on spaces, so a failure here fails the
           # registration outright rather than leaving a half-registered
           # account behind. `type` is the Space's type array (a batch space
@@ -380,29 +389,6 @@ Resources:
   # is what the WAS server's authorizer resolves a controller DID from).
   # `type` is the Space's type array (["Space"], or ["Space", "BatchSpace"]
   # for a batch-issuance space) and `name` mirrors the Space Metadata's name.
-  WalletSpacesTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: wallet-spaces
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: spaceURL
-          AttributeType: S
-        - AttributeName: did
-          AttributeType: S
-      KeySchema:
-        - AttributeName: spaceURL
-          KeyType: HASH
-      GlobalSecondaryIndexes:
-        # Both /login and the WAS server's GET /spaces list a caller's spaces
-        # by the controller DID; the registry carries no email.
-        - IndexName: by-did
-          KeySchema:
-            - AttributeName: did
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-
   FunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
