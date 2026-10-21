@@ -14,13 +14,12 @@ A registration flow and a zCap-authenticated login endpoint:
   it is stored on the account.
 - **`wallet-account-creator`** — a Step Functions state machine that registers
   an account: it emails the user a confirmation link (pausing on a task
-  token), then creates an S3 bucket for the account's first
-  [Wallet Attached Storage](https://w3c-ccg.github.io/wallet-attached-storage-spec/)
-  space, seeds its Space Metadata object (`meta/space.json`, named **Main
-  Space**), records the
-  account (email → `did` plus the registration `token`) in the `wallet-test`
-  DynamoDB table, registers the space in the `wallet-spaces` registry, and
-  emails the user a confirmation.
+  token), then records the account (email → `did` plus the registration
+  `token`) in the `wallet-test` DynamoDB table and emails the user a
+  confirmation. The account's storage is not this stack's concern: the
+  wallet creates its own Main Space on the PWS server
+  ([was-server-aws](../was-server-aws)), with the registration code as the
+  coupon, as part of registering.
 - **`registration-email-confirmation`** — a Node.js Lambda invoked via
   `GET /confirm?token=...` on an API Gateway HTTP API. When the user clicks
   the confirmation link, it calls `states:SendTaskSuccess` with the task token
@@ -29,19 +28,12 @@ A registration flow and a zCap-authenticated login endpoint:
   body containing an `email`. It verifies the request's
   [HTTP-signature capability invocation](https://github.com/interop-alliance/http-signature-zcap-verify)
   headers against a root capability controlled by the DID registered for that
-  email, and on success returns the account's registration `token` (the WAS
-  server's space-creation coupon), its credential `space` URL, and its
-  `spaces` from the registry (listed by the registered DID). All rejections
-  return a generic 401.
+  email, and on success returns the account's registration `token` (the PWS
+  server's space-creation coupon). Identity only: the wallet lists its spaces
+  through the PWS server. All rejections return a generic 401.
 - **`wallet-test`** — the DynamoDB accounts table (partition key `email`,
   on-demand billing) holding each account's `did`, registration `token`, and
   `CreatedAt`.
-- **`wallet-spaces`** — the spaces registry (partition key `spaceURL`, GSI
-  `by-did`): one row per WAS space, keyed to its controller DID, carrying the
-  space's `type` (`credential` | `batch`). Rows carry no email. This stack
-  owns the table; the [was-server-aws](../was-server-aws) stack reads it to
-  authorize space requests and writes it when provisioning spaces through its
-  `/spaces` endpoints (the spaces API itself lives there, not here).
 
 | Path | Purpose |
 | --- | --- |
@@ -68,16 +60,6 @@ A registration flow and a zCap-authenticated login endpoint:
   the default is only for local development). The code the user provides is
   stored on the account row as `token`, which the WAS server requires as the
   coupon when creating further spaces.
-- **`SpaceBaseUrl`** — base URL for Wallet Attached Storage space URLs
-  (typically ending in `/space`). At registration the state machine appends
-  the account's space id after a slash and registers the result in the
-  `wallet-spaces` registry. The default is a placeholder; set the real WAS
-  server URL at deploy time:
-
-  ```bash
-  sam deploy --parameter-overrides SpaceBaseUrl=https://your-was-server/space
-  ```
-
 ## Prerequisites
 
 - [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)

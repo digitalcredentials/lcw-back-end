@@ -6,7 +6,7 @@
 import "@interop/http-client";
 import { signCapabilityInvocation } from "@interop/http-signature-zcap-invoke";
 import { Ed25519VerificationKey } from "@interop/ed25519-verification-key";
-import { DynamoDBClient, GetItemCommand, QueryCommand } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { handler } from "../index.mjs";
 
@@ -44,7 +44,7 @@ async function signedEvent({ email }) {
     return makeEvent({ body: JSON.stringify(json), headers });
 }
 
-async function run(name, eventPromise, { registeredDid, spaceItems } = {}) {
+async function run(name, eventPromise, { registeredDid } = {}) {
     ddbMock.reset();
     // The account row: email -> did, plus the registration token the WAS
     // server's space-creation coupon is checked against.
@@ -53,8 +53,6 @@ async function run(name, eventPromise, { registeredDid, spaceItems } = {}) {
             ? { Item: { email: { S: EMAIL }, did: { S: registeredDid }, token: { S: "secret-code" } } }
             : {}
     );
-    // The wallet-spaces registry, the authority on the account's spaces.
-    ddbMock.on(QueryCommand).resolves({ Items: spaceItems ?? [] });
     const response = await handler(await eventPromise);
     console.log(`\n== ${name}`);
     console.log(`   ${response.statusCode} ${response.body}`);
@@ -72,32 +70,15 @@ await run("signed, email not registered -> 401", signedEvent({ email: EMAIL }));
 await run("signed, different DID registered -> 401", signedEvent({ email: EMAIL }), {
     registeredDid: "did:key:z6MkfDLjE5Kip9E7YRitEbrNAcCYi2AviAY8Ny7hoYnCSgav"
 });
-const registered = await run("signed, matching DID, registry rows -> 200", signedEvent({ email: EMAIL }), {
-    registeredDid: did,
-    spaceItems: [
-        { spaceURL: { S: SPACE_URL }, type: { L: [{ S: "Space" }] }, name: { S: "Wallet space" } },
-        { spaceURL: { S: `${SPACE_URL}-batch` }, type: { L: [{ S: "Space" }, { S: "BatchSpace" }] }, name: { S: "Conference 2026" } }
-    ]
-});
-// The singular `space` is the first non-batch row; names and type arrays
-// come straight from the registry.
+const registered = await run("signed, matching DID -> 200", signedEvent({ email: EMAIL }), { registeredDid: did });
+// Identity only: the controller and the token, no spaces (the wallet lists
+// them through the PWS server).
 const registeredBody = JSON.parse(registered.body);
 const registeredOk = registered.statusCode === 200 &&
-    registeredBody.space === SPACE_URL &&
+    registeredBody.controller === did &&
     registeredBody.token === "secret-code" &&
-    registeredBody.spaces.length === 2 &&
-    registeredBody.spaces.some(({ type, name }) => type.includes("BatchSpace") && name === "Conference 2026");
-console.log(`   space + spaces + token from registry ${registeredOk ? "ok" : "FAIL"}`);
+    registeredBody.space === undefined &&
+    registeredBody.spaces === undefined;
+console.log(`   controller + token, no spaces ${registeredOk ? "ok" : "FAIL"}`);
 
-// An account with no registered spaces still logs in; it just has none.
-const bare = await run("signed, matching DID, empty registry -> 200", signedEvent({ email: EMAIL }), {
-    registeredDid: did
-});
-const bareBody = JSON.parse(bare.body);
-const bareOk = bare.statusCode === 200 &&
-    bareBody.space === undefined &&
-    Array.isArray(bareBody.spaces) &&
-    bareBody.spaces.length === 0;
-console.log(`   empty registry ${bareOk ? "ok" : "FAIL"}`);
-
-process.exit(registeredOk && bareOk ? 0 : 1);
+process.exit(registeredOk ? 0 : 1);

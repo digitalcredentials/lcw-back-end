@@ -6,14 +6,6 @@ Description: >
   the task token from the confirmation link back via SendTaskSuccess.
 
 Parameters:
-  # The PWS server's spaces registry (the was-server stack's was-spaces
-  # table), which registration still writes and login still reads, by name.
-  # An interim: stage 3 of the did:webvh work makes registration coupon-based
-  # (the wallet creates its own space) and login identity-only, and this
-  # parameter goes with it.
-  SpacesTableName:
-    Type: String
-    Default: was-spaces
   DomainName:
     Type: String
     Description: The registered domain whose hosted zone receives the SES DNS records.
@@ -51,13 +43,6 @@ Parameters:
       state machine is started. Override at deploy time; the default is only
       for local development.
     Default: test-registration-code
-  SpaceBaseUrl:
-    Type: String
-    Description: >
-      Base URL for Wallet Attached Storage space URLs (typically ending in
-      /space). At registration the state machine appends the account's space
-      id after a slash and registers the result in the PWS server's spaces registry.
-    Default: https://was.example.org/space
 
 Resources:
   ConfirmationHttpApi:
@@ -162,12 +147,9 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref WalletTestTable
-          SPACES_TABLE_NAME: !Ref SpacesTableName
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref WalletTestTable
-        - DynamoDBReadPolicy:
-            TableName: !Ref SpacesTableName
       LoggingConfig:
         LogGroup: !Ref LoginFunctionLogGroup
       Events:
@@ -198,9 +180,9 @@ Resources:
 
   # The /spaces API (create, list, delete the account's WAS spaces) moved to
   # the was-server-aws stack, where it implements the WAS spec's space registry
-  # endpoints with coupon-gated creation and owns the spaces registry. This
-  # stack still seeds the first space at registration, writing the registry
-  # by name (SpacesTableName), until stage 3 of the did:webvh work.
+  # endpoints with coupon-gated creation and owns the spaces registry. The
+  # wallet creates its own Main Space there at registration; this stack only
+  # records the email against the signing DID and confirms the address.
 
   WalletAccountCreatorStateMachine:
     Type: AWS::Serverless::StateMachine
@@ -216,24 +198,11 @@ Resources:
             - Effect: Allow
               Action: ses:SendEmail
               Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}
-        # Space provisioning: every space bucket shares the dcc-was- prefix
-        # (see GenerateBucketName).
-        - Statement:
-            - Effect: Allow
-              Action:
-                - s3:CreateBucket
-                - s3:PutObject
-              Resource:
-                - !Sub arn:${AWS::Partition}:s3:::dcc-was-*
-                - !Sub arn:${AWS::Partition}:s3:::dcc-was-*/*
-        # CreateAccount writes the account row; RegisterSpace the registry row.
+        # CreateAccount writes the account row.
         - DynamoDBWritePolicy:
             TableName: !Ref WalletTestTable
-        - DynamoDBWritePolicy:
-            TableName: !Ref SpacesTableName
       DefinitionSubstitutions:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
-        SpaceUrlBase: !Ref SpaceBaseUrl
         WalletUrl: !Ref WalletUrl
         # The HTML emails share one layout: the organisation's logo and name
         # at the top, a footer at the bottom. CloudFormation pastes these into
@@ -251,7 +220,6 @@ Resources:
           </table></td></tr></table></body></html>
         ButtonStyle: display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;
         AccountTable: !Ref WalletTestTable
-        SpacesTable: !Ref SpacesTableName
         FromEmail: !Ref FromEmail
       Definition:
         Comment: DCC LCW registration state machine
@@ -279,32 +247,6 @@ Resources:
                         <p>Thank you for registering for a Learner Credential Wallet. Please confirm that this is your email address to finish setting up your account.</p>
                         <p style='margin:24px 0;'><a href='${ConfirmUrl}?token=" & $encodeUrlComponent($states.context.Task.Token) & "' style='${ButtonStyle}'>Confirm my email</a></p>
                         <p style='font-size:14px;color:#6b7280;'>If you did not register, you can ignore this email.</p>${EmailFoot}" %}
-            Next: GenerateBucketName
-          GenerateBucketName:
-            Type: Pass
-            Assign:
-              BucketName: "{% 'dcc-was-' & $uuid() %}"
-            Next: CreateS3Bucket
-          CreateS3Bucket:
-            Type: Task
-            Resource: arn:aws:states:::aws-sdk:s3:createBucket
-            Arguments:
-              Bucket: '{% $BucketName %}'
-            Next: SeedSpaceMetadata
-          # The WAS server (spec v0.5) reads the Space Metadata object from
-          # meta/space.json. The Body is the object itself, NOT $string(...):
-          # the aws-sdk integration JSON-serializes the Body value it sends,
-          # so a pre-stringified document comes out double-encoded (a JSON
-          # string containing JSON), which has no readable name.
-          SeedSpaceMetadata:
-            Type: Task
-            Resource: arn:aws:states:::aws-sdk:s3:putObject
-            Arguments:
-              Bucket: '{% $BucketName %}'
-              Key: meta/space.json
-              ContentType: application/json
-              Body: >-
-                {% {"id": $BucketName, "type": ["Space"], "name": "Main Space", "controller": $states.context.Execution.Input.did, "createdBy": $states.context.Execution.Input.did, "createdAt": $now(), "updatedAt": $now()} %}
             Next: CreateAccount
           CreateAccount:
             Type: Task
@@ -312,7 +254,7 @@ Resources:
             Arguments:
               TableName: ${AccountTable}
               # The account row is identity only (email -> did); the account's
-              # spaces live in the PWS server's spaces registry (see RegisterSpace).
+              # spaces live in the PWS server, which the wallet provisions itself.
               Item:
                 email:
                   S: '{% $states.context.Execution.Input.recipientEmail %}'
@@ -322,32 +264,6 @@ Resources:
                 # the WAS server's space-creation coupon is checked against.
                 token:
                   S: '{% $states.context.Execution.Input.registrationCode %}'
-                CreatedAt:
-                  S: '{% $now() %}'
-            Next: RegisterSpace
-          # Registers the wallet's own space in the PWS server's spaces registry. The
-          # registry is the authority on spaces, so a failure here fails the
-          # registration outright rather than leaving a half-registered
-          # account behind. `type` is the Space's type array (a batch space
-          # would carry "BatchSpace" too) and `name` mirrors the metadata's
-          # name so listings can show it without reading the bucket.
-          RegisterSpace:
-            Type: Task
-            Resource: arn:aws:states:::dynamodb:putItem
-            Arguments:
-              TableName: ${SpacesTable}
-              # Registry rows are keyed to the controller DID alone; the
-              # account's email stays out of the registry.
-              Item:
-                spaceURL:
-                  S: "{% '${SpaceUrlBase}/' & $BucketName %}"
-                did:
-                  S: '{% $states.context.Execution.Input.did %}'
-                type:
-                  L:
-                    - S: Space
-                name:
-                  S: Main Space
                 CreatedAt:
                   S: '{% $now() %}'
             Next: SendEmailConf
