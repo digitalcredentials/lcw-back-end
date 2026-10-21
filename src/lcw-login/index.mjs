@@ -6,31 +6,11 @@ import { Ed25519Signature2020 } from "@interop/ed25519-signature";
 import { securityLoader } from "@interop/security-document-loader";
 import { Ed25519VerificationKey } from "@interop/ed25519-verification-key";
 import { createRootCapability } from "@interop/zcap";
-import { DynamoDBClient, GetItemCommand, QueryCommand } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
 const documentLoader = securityLoader().build();
 const dynamoClient = new DynamoDBClient();
 const TABLE_NAME = process.env.TABLE_NAME ?? "wallet-test";
-const SPACES_TABLE = process.env.SPACES_TABLE_NAME ?? "was-spaces";
-
-// The account's registered spaces, from the PWS server's spaces registry, the
-// authority on spaces (every space is registered there at creation). Rows are
-// keyed to the account's registered DID; the registry carries no email.
-async function getSpaces({ did }) {
-    const { Items: items = [] } = await dynamoClient.send(new QueryCommand({
-        TableName: SPACES_TABLE,
-        IndexName: "by-did",
-        KeyConditionExpression: "did = :did",
-        ExpressionAttributeValues: { ":did": { S: did } }
-    }));
-    // `type` is the Space's type array; `name` is mirrored from the Space
-    // Metadata by the WAS server.
-    return items.map((item) => ({
-        url: item.spaceURL?.S,
-        type: item.type?.L?.map((entry) => entry.S) ?? ["Space"],
-        ...(item.name?.S !== undefined && { name: item.name.S })
-    }));
-}
 
 async function getVerifier({ keyId, documentLoader }) {
     const { document } = await documentLoader(keyId);
@@ -127,25 +107,14 @@ export const handler = async (event) => {
         return json(401, { error: "Login failed." });
     }
 
-    let spaces;
-    try {
-        spaces = await getSpaces({ did: registeredDid });
-    } catch (error) {
-        console.error("Error listing spaces:", error);
-        return json(500, { error: "Failed to look up spaces." });
-    }
-
+    // Identity only: the wallet finds its spaces through the PWS server.
     return json(200, {
         verified: true,
         email,
         controller: registeredDid,
-        // The registration token, which the WAS server requires as the coupon
+        // The registration token, which the PWS server requires as the coupon
         // when creating a space. Returned only to the account holder: the
         // login just verified their signature.
-        token: account?.token?.S,
-        // The front end still reads the singular `space`: the account's
-        // first credential space (one whose type is not a batch space).
-        space: spaces.find(({ type }) => !type.includes("BatchSpace"))?.url,
-        spaces
+        token: account?.token?.S
     });
 };
