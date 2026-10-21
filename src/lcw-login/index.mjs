@@ -3,20 +3,12 @@
 import "@interop/http-client";
 import { verifyCapabilityInvocation } from "@interop/http-signature-zcap-verify";
 import { Ed25519Signature2020 } from "@interop/ed25519-signature";
-import { securityLoader } from "@interop/security-document-loader";
-import { Ed25519VerificationKey } from "@interop/ed25519-verification-key";
 import { createRootCapability } from "@interop/zcap";
+import { documentLoader, getVerifier } from "./webvh.mjs";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
-const documentLoader = securityLoader().build();
 const dynamoClient = new DynamoDBClient();
 const TABLE_NAME = process.env.TABLE_NAME ?? "wallet-test";
-
-async function getVerifier({ keyId, documentLoader }) {
-    const { document } = await documentLoader(keyId);
-    const key = await Ed25519VerificationKey.fromKeyDocument({ document });
-    return { verifier: key.verifier(), verificationMethod: document };
-}
 
 const json = (statusCode, body) => ({
     statusCode,
