@@ -11,9 +11,9 @@ import { DynamoDBClient, GetItemCommand, QueryCommand } from "@aws-sdk/client-dy
 const documentLoader = securityLoader().build();
 const dynamoClient = new DynamoDBClient();
 const TABLE_NAME = process.env.TABLE_NAME ?? "wallet-test";
-const SPACES_TABLE = process.env.SPACES_TABLE_NAME ?? "wallet-spaces";
+const SPACES_TABLE = process.env.SPACES_TABLE_NAME ?? "was-spaces";
 
-// The account's registered spaces, from the wallet-spaces registry — the
+// The account's registered spaces, from the PWS server's spaces registry, the
 // authority on spaces (every space is registered there at creation). Rows are
 // keyed to the account's registered DID; the registry carries no email.
 async function getSpaces({ did }) {
