@@ -380,8 +380,14 @@ Resources:
   # is what the WAS server's authorizer resolves a controller DID from).
   # `type` is the Space's type array (["Space"], or ["Space", "BatchSpace"]
   # for a batch-issuance space) and `name` mirrors the Space Metadata's name.
+  # The spaces registry is moving to the was-server stack, which is its
+  # main user (its authorizer reads it on every request; its functions
+  # write it). Retained so removing it from this template leaves the
+  # table, and the data, for that stack to import.
   WalletSpacesTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: wallet-spaces
       BillingMode: PAY_PER_REQUEST
