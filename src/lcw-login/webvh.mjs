@@ -47,9 +47,9 @@ async function limitedFetch(url, init = {}) {
 
 const cache = new Map();
 
-export async function resolveWebvhDocument(did) {
+export async function resolveWebvhDocument(did, { fresh = false } = {}) {
   const cached = cache.get(did);
-  if (cached && cached.expires > Date.now()) {
+  if (cached && cached.expires > Date.now() && !fresh) {
     return cached.doc;
   }
   const result = await webvh.resolveDID(did, { fetch: limitedFetch });
@@ -77,19 +77,33 @@ function relationIds(doc, relation) {
 // delegation's proof).
 async function resolveWebvh(id) {
   const [did, fragment] = id.split("#");
-  const doc = await resolveWebvhDocument(did);
+  let doc = await resolveWebvhDocument(did);
   if (fragment === undefined) {
     return doc;
   }
-  const listed = relationIds(doc, "capabilityInvocation").includes(id) || relationIds(doc, "capabilityDelegation").includes(id);
-  const method = (doc.verificationMethod ?? []).find((entry) => entry?.id === id);
-  if (!listed || !method?.publicKeyMultibase) {
+  const lookup = (d) => {
+    const listed = relationIds(d, "capabilityInvocation").includes(id) || relationIds(d, "capabilityDelegation").includes(id);
+    const found = (d.verificationMethod ?? []).find((entry) => entry?.id === id);
+    return listed ? found : undefined;
+  };
+  // A key the cached document does not list is looked up once more against a
+  // fresh resolution: a credential added a moment ago must work at once,
+  // while a removed key keeps working only until the cache expires.
+  let method = lookup(doc);
+  if (!method) {
+    doc = await resolveWebvhDocument(did, { fresh: true });
+    method = lookup(doc);
+  }
+  if (!method?.publicKeyMultibase) {
     throw new Error(`${id} is not a capability key of ${did}.`);
   }
   return { "@context": "https://w3id.org/security/multikey/v1", ...method, type: "Multikey", controller: method.controller ?? did };
 }
 
 const didResolver = createDefaultDidResolver();
+// did:webvh documents are cached (and refreshed on a missing key) above; the
+// resolver's own memo would only serve the controller document stale.
+didResolver._cache = { memoize: ({ fn }) => fn() };
 didResolver.use({ method: "webvh", get: ({ did, url }) => resolveWebvh(did ?? url) });
 
 // The document loader zcap verification runs with: did:key, did:web and
