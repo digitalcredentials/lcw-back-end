@@ -57,6 +57,7 @@ Resources:
         AllowMethods:
           - GET
           - POST
+          - PUT
           - DELETE
           - OPTIONS
         AllowHeaders:
@@ -310,6 +311,100 @@ Resources:
     Properties:
       LogGroupName: /aws/lambda/registration-email-confirmation
       RetentionInDays: 30
+
+  # ---- account recovery: the wallet stores a recovery code (encrypted under
+  # this key) and "Forgot your password?" emails it to the registered address.
+  # The server therefore holds a secret that unlocks the account; see
+  # src/lcw-recovery/index.mjs for the controls around it.
+
+  RecoveryKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Encrypts the accounts' recovery codes
+      EnableKeyRotation: true
+
+  RecoveryKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/lcw-recovery-codes
+      TargetKeyId: !Ref RecoveryKey
+
+  RecoveryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: lcw-recovery
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+
+  LcwRecoveryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lcw-recovery
+      Description: Stores an account's recovery code and emails it on request
+      CodeUri: src/lcw-recovery/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      # Verifying a did:webvh account resolves its log
+      Timeout: 10
+      Environment:
+        Variables:
+          ACCOUNTS_TABLE_NAME: !Ref WalletTestTable
+          RECOVERY_TABLE_NAME: !Ref RecoveryTable
+          RECOVERY_KEY_ID: !Ref RecoveryKey
+          FROM_EMAIL: !Ref FromEmail
+          ORG_NAME: !Ref OrgName
+          LOGO_URL: !Ref LogoUrl
+          WALLET_URL: !Ref WalletUrl
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref WalletTestTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RecoveryTable
+        - KMSEncryptPolicy:
+            KeyId: !Ref RecoveryKey
+        - KMSDecryptPolicy:
+            KeyId: !Ref RecoveryKey
+        - SESCrudPolicy:
+            IdentityName: !Ref DomainName
+      Events:
+        StoreCode:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: PUT
+            Path: /recovery
+        CodeStatus:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: GET
+            Path: /recovery
+        Forgot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: POST
+            Path: /forgot
+    Metadata:
+      # Bundling resolves the CJS require of the ESM @interop/http-client at
+      # build time; the Lambda runtime refuses it at runtime (ERR_REQUIRE_ESM).
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: node22
+        Sourcemap: false
+        EntryPoints:
+          - index.mjs
+        External:
+          - '@aws-sdk/*'
 
   # ---- lcw-sandbox.org email: send as FromEmail, forward inbound to ForwardTo
 

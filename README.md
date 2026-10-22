@@ -31,6 +31,20 @@ A registration flow and a zCap-authenticated login endpoint:
   email, and on success returns the account's registration `token` (the PWS
   server's space-creation coupon). Identity only: the wallet lists its spaces
   through the PWS server. All rejections return a generic 401.
+- **`lcw-recovery`** — a Node.js Lambda holding each account's recovery code.
+  The wallet mints a code, binds it as a credential of the account, and
+  stores it with `PUT /recovery` (signed as the account, verified the way
+  `/login` is); `GET /recovery?email=` says whether one is stored. **`POST
+  /forgot`** `{email}` emails the code to the address the account registered
+  and answers the same whether or not the account or a code exists; it is
+  limited to three emails per address per hour. Codes are encrypted under
+  the stack's `RecoveryKey` (KMS, the email as encryption context) in the
+  `lcw-recovery` table. This is the one place the server holds a secret that
+  unlocks an account's data: whoever can read the table, decrypt with the
+  key, and receive the registered address's mail can open the account. The
+  controls are the encryption at rest, the registered address as the only
+  destination, the rate limit, the log line per send, and the wallet
+  replacing the code after every use.
 - **`wallet-test`** — the DynamoDB accounts table (partition key `email`,
   on-demand billing) holding each account's `did`, registration `token`, and
   `CreatedAt`.
