@@ -1,7 +1,9 @@
 import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { KMSClient, EncryptCommand, DecryptCommand } from "@aws-sdk/client-kms";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
-import { verifyAccountInvocation } from "./verify.mjs";
+// From the webvh-verify layer (layers/webvh-verify), shared with lcw-login
+// and the batch issuer's notify function.
+import { verifyAccountInvocation } from "webvh-verify";
 
 // The account's recovery code. The wallet mints a code, binds it as a
 // credential of the account, and stores it here, encrypted under a KMS key,

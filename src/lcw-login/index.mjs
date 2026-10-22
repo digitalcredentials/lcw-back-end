@@ -1,10 +1,6 @@
-// Must be evaluated before @interop/jsonld (CJS) is pulled in below, which
-// require()s this ESM package mid-graph and hits a TDZ error otherwise.
-import "@interop/http-client";
-import { verifyCapabilityInvocation } from "@interop/http-signature-zcap-verify";
-import { Ed25519Signature2020 } from "@interop/ed25519-signature";
-import { createRootCapability } from "@interop/zcap";
-import { documentLoader, getVerifier } from "./webvh.mjs";
+// The verifier comes from the webvh-verify layer (layers/webvh-verify),
+// shared with lcw-recovery and the batch issuer's notify function.
+import { verifyAccountInvocation } from "webvh-verify";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
 const dynamoClient = new DynamoDBClient();
@@ -54,48 +50,8 @@ export const handler = async (event) => {
     // 3. Verify the zCap HTTP-signature invocation headers. The root
     // capability for /login is controlled by the account's registered DID, so
     // verification itself rejects invocations signed by anyone else's key.
-    // The URL is rebuilt from the request's own host/proto (rather than
-    // hardcoding https + the API domain) so signatures verify under sam local
-    // (http://127.0.0.1:<port>) as well as behind API Gateway. Header names
-    // are lowercased first: API Gateway delivers them lowercase but sam local
-    // preserves the original casing (e.g. Host).
-    const headers = Object.fromEntries(
-        Object.entries(event.headers ?? {}).map(([name, value]) => [name.toLowerCase(), value])
-    );
-    const proto = headers["x-forwarded-proto"] ?? "https";
-    const host = headers.host ?? event.requestContext.domainName;
-    const url = `${proto}://${host}${event.rawPath}`;
-    const rootCapability = createRootCapability({
-        controller: registeredDid,
-        invocationTarget: url
-    });
-    const loginDocumentLoader = async (documentUrl) => {
-        if (documentUrl === rootCapability.id) {
-            return { contextUrl: null, documentUrl, document: rootCapability };
-        }
-        return documentLoader(documentUrl);
-    };
-
-    try {
-        const result = await verifyCapabilityInvocation({
-            url,
-            method: event.requestContext.http.method,
-            headers,
-            suite: new Ed25519Signature2020(),
-            getVerifier,
-            documentLoader: loginDocumentLoader,
-            expectedHost: host,
-            expectedAction: "write",
-            expectedTarget: url,
-            expectedRootCapability: rootCapability.id
-        });
-
-        if (!result.verified) {
-            console.error(`Login rejected for ${email}:`, result.error);
-            return json(401, { error: "Login failed." });
-        }
-    } catch (error) {
-        console.error(`Login rejected for ${email}:`, error);
+    if (!(await verifyAccountInvocation({ event, registeredDid }))) {
+        console.error(`Login rejected for ${email}`);
         return json(401, { error: "Login failed." });
     }
 

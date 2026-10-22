@@ -153,6 +153,8 @@ Resources:
             TableName: !Ref WalletTestTable
       LoggingConfig:
         LogGroup: !Ref LoginFunctionLogGroup
+      Layers:
+        - !Ref WebvhVerifyLayer
       Events:
         LoginRoute:
           Type: HttpApi
@@ -161,17 +163,24 @@ Resources:
             Method: POST
             Path: /login
     Metadata:
-      # Bundling resolves the CJS require of the ESM @interop/http-client at
-      # build time; the Lambda runtime refuses it at runtime (ERR_REQUIRE_ESM).
+      # Bundled as one ES module; the verifier is left external and resolved
+      # from the webvh-verify layer at runtime.
       BuildMethod: esbuild
       BuildProperties:
         Minify: false
         Target: node22
+        Format: esm
+        Platform: node
         Sourcemap: false
+        OutExtension:
+          - .js=.mjs
+        Banner:
+          - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
         EntryPoints:
           - index.mjs
         External:
           - '@aws-sdk/*'
+          - webvh-verify
 
   LoginFunctionLogGroup:
     Type: AWS::Logs::LogGroup
@@ -394,17 +403,51 @@ Resources:
             Method: POST
             Path: /forgot
     Metadata:
-      # Bundling resolves the CJS require of the ESM @interop/http-client at
-      # build time; the Lambda runtime refuses it at runtime (ERR_REQUIRE_ESM).
+      # Bundled as one ES module; the verifier is left external and resolved
+      # from the webvh-verify layer at runtime.
       BuildMethod: esbuild
       BuildProperties:
         Minify: false
         Target: node22
+        Format: esm
+        Platform: node
         Sourcemap: false
+        OutExtension:
+          - .js=.mjs
+        Banner:
+          - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
         EntryPoints:
           - index.mjs
         External:
           - '@aws-sdk/*'
+          - webvh-verify
+
+  # ---- the did:webvh invocation verifier, shared as a layer
+
+  # One copy of the zCap invocation verifier (a registered did:key or
+  # did:webvh; layers/webvh-verify) for lcw-login, lcw-recovery and the
+  # batch issuer's notify function, which lives in another stack and reads
+  # the layer's ARN from the SSM parameter below. Old versions are retained
+  # because that stack may still reference one until it is next deployed.
+  WebvhVerifyLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: webvh-verify
+      Description: zCap invocation verification against a registered did:key or did:webvh
+      ContentUri: layers/webvh-verify
+      CompatibleRuntimes:
+        - nodejs24.x
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: makefile
+
+  WebvhVerifyLayerArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /lcw/webvh-verify-layer-arn
+      Type: String
+      Value: !Ref WebvhVerifyLayer
+      Description: ARN of the current webvh-verify layer version (lcw-back-end)
 
   # ---- lcw-sandbox.org email: send as FromEmail, forward inbound to ForwardTo
 

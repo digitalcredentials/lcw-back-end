@@ -1,19 +1,32 @@
-// zCap invocation verification against an account's registered DID: the same
-// scheme /login uses. The invoked root capability is controlled by the DID
-// registered for the email, so verification itself rejects invocations signed
-// by anyone else's key; a registered did:webvh is controlled by the keys its
-// log's current document lists (webvh.mjs). Kept in this function's own
-// directory because SAM's esbuild build only packages files under the
-// function's CodeUri.
+// zCap invocation verification against an account's registered DID, shared
+// by every function that authenticates a wallet session (lcw-login,
+// lcw-recovery, and batch-issuer-backend's notify) through the webvh-verify
+// Lambda layer. The invoked root capability is controlled by the DID
+// registered for the email, so verification itself rejects invocations
+// signed by anyone else's key; a registered did:webvh is controlled by the
+// keys its log's current document lists (webvh.mjs).
+//
+// Always used bundled (`npm run build` -> dist/index.mjs), by the layer and
+// by the functions' local tests alike: loaded from node_modules unbundled,
+// the CJS/ESM cycle between @interop/jsonld-signatures and
+// @interop/data-integrity-core fails at load.
+//
+// http-client first: @interop/jsonld (CJS) require()s this ESM package
+// mid-graph and hits a TDZ error when it is not already evaluated.
 import "@interop/http-client";
 import { verifyCapabilityInvocation } from "@interop/http-signature-zcap-verify";
 import { Ed25519Signature2020 } from "@interop/ed25519-signature";
 import { createRootCapability } from "@interop/zcap";
 import { documentLoader, getVerifier } from "./webvh.mjs";
 
-// True when `event` carries a zcap invocation of its own URL (the query
-// string included, so a signed `email` cannot be swapped) signed by
-// `registeredDid`.
+export { documentLoader, getVerifier, resolveWebvhDocument, clearWebvhCache, isWebvhDid } from "./webvh.mjs";
+
+// True when `event` (an HTTP API payload v2 event) carries a zcap invocation
+// of its own URL signed by `registeredDid`. The URL is rebuilt from the
+// request's proto/host/path, so signatures verify under sam local as well as
+// behind API Gateway, and includes the query string, so signed query
+// parameters (email, space) cannot be swapped. Header names are lowercased
+// first: API Gateway delivers them lowercase, sam local preserves casing.
 export async function verifyAccountInvocation({ event, registeredDid }) {
     const headers = Object.fromEntries(
         Object.entries(event.headers ?? {}).map(([name, value]) => [name.toLowerCase(), value])

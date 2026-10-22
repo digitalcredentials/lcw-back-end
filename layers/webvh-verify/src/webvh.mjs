@@ -4,8 +4,6 @@
 // method is listed under capabilityInvocation (the current-key-set rule the
 // PWS server applies). The log is fetched over HTTPS from the identity
 // domain the DID names, with a timeout and a size cap, and cached briefly.
-// Kept in this function's own directory because SAM's esbuild build only
-// packages files under the function's CodeUri.
 import * as webvh from "@interop/did-method-webvh";
 import { Ed25519VerificationKey } from "@interop/ed25519-verification-key";
 import { securityLoader, createDefaultDidResolver } from "@interop/security-document-loader";
