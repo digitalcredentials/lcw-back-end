@@ -7,6 +7,7 @@
     "test": "node test/local-test.mjs"
   },
   "dependencies": {
+    "@interop/did-method-webvh": "^5.15.0",
     "@interop/ed25519-signature": "^7.2.1",
     "@interop/ed25519-verification-key": "^8.1.0",
     "@interop/http-client": "^1.0.5",
@@ -18,6 +19,7 @@
     "@aws-sdk/client-dynamodb": "^3.1127.0",
     "@interop/http-signature-zcap-invoke": "^6.2.6",
     "aws-sdk-client-mock": "^4.1.0",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "@interop/ed25519-verification-key": "^8.1.0"
   }
 }

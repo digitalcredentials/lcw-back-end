@@ -9,6 +9,8 @@ import { Ed25519VerificationKey } from "@interop/ed25519-verification-key";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { handler } from "../index.mjs";
+import { createDID, signerFromDidKeySigner, logToJsonlString } from "@interop/did-method-webvh";
+import { clearWebvhCache } from "../webvh.mjs";
 
 const HOST = "iibe16rs13.execute-api.us-east-1.amazonaws.com";
 const URL = `https://${HOST}/login`;
@@ -81,4 +83,48 @@ const registeredOk = registered.statusCode === 200 &&
     registeredBody.spaces === undefined;
 console.log(`   controller + token, no spaces ${registeredOk ? "ok" : "FAIL"}`);
 
-process.exit(registeredOk ? 0 : 1);
+
+// An account registered as a did:webvh: the key signs under its verification
+// method id in the account document, which the handler resolves from the
+// log served at the DID's identity domain (fetch is stubbed here).
+const multibase = key.fingerprint();
+const minted = await createDID({
+    address: "id.test",
+    paths: ["space1"],
+    signer: signerFromDidKeySigner(key.signer()),
+    updateKeys: [did],
+    verificationMethods: [{ type: "Multikey", publicKeyMultibase: multibase }],
+    vmIdFragment: "multibase",
+    authentication: [`#${multibase}`],
+    assertionMethod: [`#${multibase}`],
+    capabilityInvocation: [`#${multibase}`],
+    capabilityDelegation: [`#${multibase}`]
+});
+const jsonl = logToJsonlString(minted.log);
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url) =>
+    String(url) === "https://id.test/space1/did.jsonl"
+        ? new Response(jsonl, { status: 200, headers: { "content-type": "text/jsonl" } })
+        : new Response("not found", { status: 404 });
+const inner = key.signer();
+const accountSigner = { id: `${minted.did}#${multibase}`, algorithm: inner.algorithm, sign: inner.sign.bind(inner) };
+async function accountSignedEvent({ email }, signer = accountSigner) {
+    const json = { email };
+    const headers = await signCapabilityInvocation({ url: URL, method: "POST", headers: { host: HOST }, json, capabilityAction: "write", invocationSigner: signer });
+    return makeEvent({ body: JSON.stringify(json), headers });
+}
+clearWebvhCache();
+const webvhLogin = await run("signed as the did:webvh's listed key -> 200", accountSignedEvent({ email: EMAIL }), { registeredDid: minted.did });
+const webvhOk = webvhLogin.statusCode === 200 && JSON.parse(webvhLogin.body).controller === minted.did;
+console.log(`   did:webvh account ${webvhOk ? "ok" : "FAIL"}`);
+const stranger = await Ed25519VerificationKey.generate();
+stranger.controller = `did:key:${stranger.fingerprint()}`;
+stranger.id = `${stranger.controller}#${stranger.fingerprint()}`;
+const strangerInner = stranger.signer();
+const strangerSigner = { id: `${minted.did}#${stranger.fingerprint()}`, algorithm: strangerInner.algorithm, sign: strangerInner.sign.bind(strangerInner) };
+const webvhStranger = await run("signed under the did:webvh by a key it does not list -> 401", accountSignedEvent({ email: EMAIL }, strangerSigner), { registeredDid: minted.did });
+const strangerOk = webvhStranger.statusCode === 401;
+console.log(`   unlisted key refused ${strangerOk ? "ok" : "FAIL"}`);
+globalThis.fetch = realFetch;
+
+process.exit(registeredOk && webvhOk && strangerOk ? 0 : 1);
