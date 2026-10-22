@@ -45,6 +45,20 @@ A registration flow and a zCap-authenticated login endpoint:
   controls are the encryption at rest, the registered address as the only
   destination, the rate limit, the log line per send, and the wallet
   replacing the code after every use.
+- **`webvh-verify`** (`layers/webvh-verify/`) — a Lambda layer holding the
+  one copy of the zCap invocation verifier `lcw-login` and `lcw-recovery`
+  share with the batch issuer's notify function
+  ([batch-issuer-backend](../batch-issuer-backend)): the invocation of the
+  request's own URL must be signed by the DID registered for the email, and
+  a registered `did:webvh` is controlled by whichever keys its log's current
+  document lists (fetched from the identity domain, cached briefly,
+  refreshed once when a key is missing). The layer is bundled with its
+  dependencies into one ES module (`npm run build`), the functions leave
+  `webvh-verify` external and import it from the layer at runtime, and the
+  stack publishes the current layer version's ARN in the SSM parameter
+  `/lcw/webvh-verify-layer-arn` for the batch issuer's stack to read. Old
+  versions are retained, since that stack references one until its next
+  deploy.
 - **`wallet-test`** — the DynamoDB accounts table (partition key `email`,
   on-demand billing) holding each account's `did`, registration `token`, and
   `CreatedAt`.
@@ -54,6 +68,7 @@ A registration flow and a zCap-authenticated login endpoint:
 | `template.yaml` | SAM template: the HTTP API, the Lambdas, the state machine, the DynamoDB tables, IAM policies, and log groups |
 | `src/lcw-register/index.mjs` | Registration Lambda handler |
 | `src/registration-email-confirmation/index.mjs` | Confirmation Lambda handler |
+| `layers/webvh-verify/` | The shared invocation verifier, as a Lambda layer (`src/`, bundled to `dist/` by `npm run build`; `Makefile` for `sam build`) |
 | `src/lcw-login/index.mjs` | Login Lambda handler |
 | `src/lcw-login/test/local-test.mjs` | Local test for the login handler |
 | `src/lcw-login/test/wire-test.mjs` | Signed end-to-end test against the local API |
@@ -119,7 +134,11 @@ npm test
 The test runs the handler in-process against a mocked DynamoDB table and
 prints the response for each scenario — malformed bodies, unsigned requests,
 signatures from the wrong DID, and a fully signed capability invocation
-(generated with a fresh `did:key`) that succeeds end to end.
+(generated with a fresh `did:key`) that succeeds end to end. The handler
+imports the verifier from `webvh-verify`, which the function's
+`devDependencies` link to `layers/webvh-verify`; `npm test` first builds
+that layer's bundle (`pretest`), since the verifier only loads bundled.
+`src/lcw-recovery` tests the same way.
 
 ### Running the API locally
 

@@ -1,0 +1,23 @@
+{
+  "name": "webvh-verify",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lambda layer: zCap invocation verification against a registered did:key or did:webvh",
+  "type": "module",
+  "main": "dist/index.mjs",
+  "scripts": {
+    "build": "esbuild src/index.mjs --bundle --platform=node --format=esm --target=node22 --outfile=dist/index.mjs --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\""
+  },
+  "dependencies": {
+    "@interop/did-method-webvh": "^5.15.0",
+    "@interop/ed25519-signature": "^7.2.1",
+    "@interop/ed25519-verification-key": "^8.1.0",
+    "@interop/http-client": "^1.0.5",
+    "@interop/http-signature-zcap-verify": "^12.2.2",
+    "@interop/security-document-loader": "^10.1.1",
+    "@interop/zcap": "^11.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

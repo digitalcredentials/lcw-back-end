@@ -10,7 +10,7 @@ import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { handler } from "../index.mjs";
 import { createDID, signerFromDidKeySigner, logToJsonlString } from "@interop/did-method-webvh";
-import { clearWebvhCache } from "../webvh.mjs";
+import { clearWebvhCache } from "webvh-verify";
 
 const HOST = "iibe16rs13.execute-api.us-east-1.amazonaws.com";
 const URL = `https://${HOST}/login`;
