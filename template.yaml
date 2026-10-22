@@ -383,6 +383,8 @@ Resources:
             KeyId: !Ref RecoveryKey
         - SESCrudPolicy:
             IdentityName: !Ref DomainName
+      Layers:
+        - !Ref WebvhVerifyLayer
       Events:
         StoreCode:
           Type: HttpApi
