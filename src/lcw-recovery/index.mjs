@@ -99,7 +99,8 @@ async function storeCode(event) {
         })
     );
     console.log(`Recovery code stored for ${email}`);
-    return json(204);
+    // A body, not a 204: the zcap HTTP client parses every response as JSON
+    return json(200, { stored: true });
 }
 
 async function status(event) {
