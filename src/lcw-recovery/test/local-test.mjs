@@ -102,7 +102,7 @@ check("PUT without a code -> 400", res.statusCode === 400);
 reset();
 res = await handler(await signed({ method: "PUT", path: "/recovery", json: { email: EMAIL, code: CODE } }));
 const row = recovery.get(EMAIL);
-check("signed PUT stores the code", res.statusCode === 204 && Boolean(row));
+check("signed PUT stores the code", res.statusCode === 200 && JSON.parse(res.body).stored === true && Boolean(row));
 check("the stored code is not plaintext (KMS ciphertext)", Buffer.from(row.code.B).subarray(0, 4).toString() === "enc:");
 
 res = await handler(await signed({ method: "GET", path: "/recovery", query: `email=${encodeURIComponent(EMAIL)}` }));
