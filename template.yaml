@@ -601,9 +601,6 @@ Outputs:
   LoginUrl:
     Description: URL for the zCap-authenticated login endpoint (POST)
     Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/login
-  SpacesUrl:
-    Description: URL for the zCap-authenticated spaces endpoint (POST/GET/DELETE)
-    Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/spaces
   StateMachineArn:
     Description: Wallet account creator state machine ARN
     Value: !Ref WalletAccountCreatorStateMachine

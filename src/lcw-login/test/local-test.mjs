@@ -125,6 +125,55 @@ const strangerSigner = { id: `${minted.did}#${stranger.fingerprint()}`, algorith
 const webvhStranger = await run("signed under the did:webvh by a key it does not list -> 401", accountSignedEvent({ email: EMAIL }, strangerSigner), { registeredDid: minted.did });
 const strangerOk = webvhStranger.statusCode === 401;
 console.log(`   unlisted key refused ${strangerOk ? "ok" : "FAIL"}`);
+
+// A transient wallet session signs as the account's client annex: a
+// did:webvh of its own, whose document lists the session's key, named by
+// the account document's DelegatedClients service entry.
+const annexKey = await Ed25519VerificationKey.generate();
+const annexMultibase = annexKey.fingerprint();
+annexKey.controller = `did:key:${annexMultibase}`;
+annexKey.id = `${annexKey.controller}#${annexMultibase}`;
+const annex = await createDID({
+    address: "id.test",
+    paths: ["annex1"],
+    signer: signerFromDidKeySigner(annexKey.signer()),
+    updateKeys: [`did:key:${annexMultibase}`],
+    verificationMethods: [{ type: "Multikey", publicKeyMultibase: annexMultibase }],
+    vmIdFragment: "multibase",
+    capabilityInvocation: [`#${annexMultibase}`],
+    capabilityDelegation: [`#${annexMultibase}`]
+});
+const pointed = await createDID({
+    address: "id.test",
+    paths: ["space2"],
+    signer: signerFromDidKeySigner(key.signer()),
+    updateKeys: [did],
+    verificationMethods: [{ type: "Multikey", publicKeyMultibase: multibase }],
+    vmIdFragment: "multibase",
+    authentication: [`#${multibase}`],
+    assertionMethod: [`#${multibase}`],
+    capabilityInvocation: [`#${multibase}`],
+    capabilityDelegation: [`#${multibase}`],
+    services: [{ id: "#delegated-clients", type: "https://w3id.org/byoe#DelegatedClients", serviceEndpoint: annex.did }]
+});
+const logs = {
+    "https://id.test/space1/did.jsonl": jsonl,
+    "https://id.test/space2/did.jsonl": logToJsonlString(pointed.log),
+    "https://id.test/annex1/did.jsonl": logToJsonlString(annex.log)
+};
+globalThis.fetch = async (url) =>
+    logs[String(url)] !== undefined
+        ? new Response(logs[String(url)], { status: 200, headers: { "content-type": "text/jsonl" } })
+        : new Response("not found", { status: 404 });
+const annexInner = annexKey.signer();
+const annexSigner = { id: `${annex.did}#${annexMultibase}`, algorithm: annexInner.algorithm, sign: annexInner.sign.bind(annexInner) };
+clearWebvhCache();
+const annexLogin = await run("signed as a key of the client annex the account names -> 200", accountSignedEvent({ email: EMAIL }, annexSigner), { registeredDid: pointed.did });
+const annexOk = annexLogin.statusCode === 200 && JSON.parse(annexLogin.body).controller === pointed.did;
+console.log(`   annex client ${annexOk ? "ok" : "FAIL"}`);
+const annexElsewhere = await run("signed as an annex the account does not name -> 401", accountSignedEvent({ email: EMAIL }, annexSigner), { registeredDid: minted.did });
+const annexElsewhereOk = annexElsewhere.statusCode === 401;
+console.log(`   unnamed annex refused ${annexElsewhereOk ? "ok" : "FAIL"}`);
 globalThis.fetch = realFetch;
 
-process.exit(registeredOk && webvhOk && strangerOk ? 0 : 1);
+process.exit(registeredOk && webvhOk && strangerOk && annexOk && annexElsewhereOk ? 0 : 1);
