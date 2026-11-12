@@ -148,6 +148,10 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref AccountsTable
+          # The largest did:webvh log the verifier fetches (layers/webvh-verify;
+          # 8 MiB). Every entry of an account's log carries the whole account
+          # document, so a long-lived account's log runs to megabytes.
+          WEBVH_MAX_LOG_BYTES: "8388608"
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref AccountsTable
@@ -372,6 +376,8 @@ Resources:
           ORG_NAME: !Ref OrgName
           LOGO_URL: !Ref LogoUrl
           WALLET_URL: !Ref WalletUrl
+          # As on the login function: the verifier's did:webvh log cap, 8 MiB
+          WEBVH_MAX_LOG_BYTES: "8388608"
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref AccountsTable
