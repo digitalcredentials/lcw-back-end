@@ -33,12 +33,13 @@ function signerDidOf(headers) {
 }
 
 // The client-annex DID the registered account's current document points at,
-// or undefined when it names none (or is not a did:webvh).
-async function clientAnnexDidOf(registeredDid) {
+// or undefined when it names none (or is not a did:webvh). `fresh` bypasses
+// the resolver's cache.
+async function clientAnnexDidOf(registeredDid, { fresh = false } = {}) {
     if (!isWebvhDid(registeredDid)) {
         return undefined;
     }
-    const doc = await resolveWebvhDocument(registeredDid);
+    const doc = await resolveWebvhDocument(registeredDid, { fresh });
     const entry = (doc.service ?? []).find((service) => [service?.type].flat().includes(DELEGATED_CLIENTS_SERVICE_TYPE));
     return typeof entry?.serviceEndpoint === "string" ? entry.serviceEndpoint : undefined;
 }
@@ -69,10 +70,20 @@ export async function verifyAccountInvocation({ event, registeredDid }) {
     let controller = registeredDid;
     const signer = signerDidOf(headers);
     if (signer && signer !== registeredDid && isWebvhDid(signer)) {
-        const annex = await clientAnnexDidOf(registeredDid).catch((error) => {
-            console.error("Could not read the account's delegated-clients pointer:", error);
-            return undefined;
-        });
+        const annexOf = (options) =>
+            clientAnnexDidOf(registeredDid, options).catch((error) => {
+                console.error("Could not read the account's delegated-clients pointer:", error);
+                return undefined;
+            });
+        let annex = await annexOf();
+        if (annex !== signer) {
+            // The cached document may be behind the log: a recovery login
+            // mints a fresh annex generation, re-points the account at it
+            // and signs in under it in the same second. One fresh
+            // resolution before refusing, as a key the cached document does
+            // not list gets.
+            annex = await annexOf({ fresh: true });
+        }
         if (annex === signer) {
             controller = annex;
         }
