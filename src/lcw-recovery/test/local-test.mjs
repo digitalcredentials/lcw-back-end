@@ -44,7 +44,7 @@ function reset({ registered = true, stored = false } = {}) {
     recovery.set(EMAIL, { email: { S: EMAIL }, code: { B: Buffer.from(`enc:${CODE}`) }, windowStart: { N: "0" }, sends: { N: "0" } });
   }
   ddb.on(GetItemCommand).callsFake(({ TableName, Key }) =>
-    ({ Item: (TableName === "wallet-test" ? accounts : recovery).get(Key.email.S) }));
+    ({ Item: (TableName === "lcw-accounts" ? accounts : recovery).get(Key.email.S) }));
   ddb.on(PutItemCommand).callsFake(({ Item }) => { recovery.set(Item.email.S, Item); return {}; });
   ddb.on(UpdateItemCommand).callsFake(({ Key, ExpressionAttributeValues: v }) => {
     const item = recovery.get(Key.email.S);

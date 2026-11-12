@@ -147,10 +147,10 @@ Resources:
       Timeout: 10
       Environment:
         Variables:
-          TABLE_NAME: !Ref WalletTestTable
+          TABLE_NAME: !Ref AccountsTable
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref WalletTestTable
+            TableName: !Ref AccountsTable
       LoggingConfig:
         LogGroup: !Ref LoginFunctionLogGroup
       Layers:
@@ -210,7 +210,7 @@ Resources:
               Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}
         # CreateAccount writes the account row.
         - DynamoDBWritePolicy:
-            TableName: !Ref WalletTestTable
+            TableName: !Ref AccountsTable
       DefinitionSubstitutions:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
         WalletUrl: !Ref WalletUrl
@@ -229,7 +229,7 @@ Resources:
           <tr><td style='padding:16px 32px;border-top:1px solid #e5e7eb;font-size:13px;color:#6b7280;'>${OrgName} &middot; Learner Credential Wallet</td></tr>
           </table></td></tr></table></body></html>
         ButtonStyle: display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;
-        AccountTable: !Ref WalletTestTable
+        AccountTable: !Ref AccountsTable
         FromEmail: !Ref FromEmail
       Definition:
         Comment: DCC LCW registration state machine
@@ -299,10 +299,10 @@ Resources:
                         <p style='margin:24px 0;'><a href='${WalletUrl}' style='${ButtonStyle}'>Open my wallet</a></p>${EmailFoot}
             End: true
 
-  WalletTestTable:
+  AccountsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: wallet-test
+      TableName: lcw-accounts
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: email
@@ -365,7 +365,7 @@ Resources:
       Timeout: 10
       Environment:
         Variables:
-          ACCOUNTS_TABLE_NAME: !Ref WalletTestTable
+          ACCOUNTS_TABLE_NAME: !Ref AccountsTable
           RECOVERY_TABLE_NAME: !Ref RecoveryTable
           RECOVERY_KEY_ID: !Ref RecoveryKey
           FROM_EMAIL: !Ref FromEmail
@@ -374,7 +374,7 @@ Resources:
           WALLET_URL: !Ref WalletUrl
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref WalletTestTable
+            TableName: !Ref AccountsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref RecoveryTable
         - KMSEncryptPolicy:

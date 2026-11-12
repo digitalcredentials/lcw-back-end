@@ -4,7 +4,7 @@ import { verifyAccountInvocation } from "webvh-verify";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
 const dynamoClient = new DynamoDBClient();
-const TABLE_NAME = process.env.TABLE_NAME ?? "wallet-test";
+const TABLE_NAME = process.env.TABLE_NAME ?? "lcw-accounts";
 
 const json = (statusCode, body) => ({
     statusCode,
