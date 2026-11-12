@@ -28,9 +28,14 @@ A registration flow and a zCap-authenticated login endpoint:
   body containing an `email`. It verifies the request's
   [HTTP-signature capability invocation](https://github.com/interop-alliance/http-signature-zcap-verify)
   headers against a root capability controlled by the DID registered for that
-  email, and on success returns the account's registration `token` (the PWS
-  server's space-creation coupon). Identity only: the wallet lists its spaces
-  through the PWS server. All rejections return a generic 401.
+  email, or by the client-annex DID that account's document names under the
+  `https://w3id.org/byoe#DelegatedClients` service type (a wallet session
+  opened with a password is a transient client of that annex, whose keys the
+  annex document lists; one opened with a passkey is an enrolled client the
+  account document lists itself), and on success returns the account's
+  registration `token` (the PWS server's space-creation coupon). Identity
+  only: the wallet lists its spaces through the PWS server. All rejections
+  return a generic 401.
 - **`lcw-recovery`** — a Node.js Lambda holding each account's recovery code.
   The wallet mints a code, binds it as a credential of the account, and
   stores it with `PUT /recovery` (signed as the account, verified the way

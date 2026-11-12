@@ -17,16 +17,44 @@ import "@interop/http-client";
 import { verifyCapabilityInvocation } from "@interop/http-signature-zcap-verify";
 import { Ed25519Signature2020 } from "@interop/ed25519-signature";
 import { createRootCapability } from "@interop/zcap";
-import { documentLoader, getVerifier } from "./webvh.mjs";
+import { documentLoader, getVerifier, isWebvhDid, resolveWebvhDocument } from "./webvh.mjs";
 
 export { documentLoader, getVerifier, resolveWebvhDocument, clearWebvhCache, isWebvhDid } from "./webvh.mjs";
 
+// The service type under which an account document names its client-annex
+// DID (wallet-core's delegated-clients pointer): the did:webvh whose
+// document lists the keys of the account's transient wallet sessions.
+const DELEGATED_CLIENTS_SERVICE_TYPE = "https://w3id.org/byoe#DelegatedClients";
+
+// The DID a request's HTTP signature names (the keyId without its fragment).
+function signerDidOf(headers) {
+    const keyId = headers.authorization?.match(/keyId="([^"]+)"/)?.[1];
+    return keyId?.split("#")[0];
+}
+
+// The client-annex DID the registered account's current document points at,
+// or undefined when it names none (or is not a did:webvh).
+async function clientAnnexDidOf(registeredDid) {
+    if (!isWebvhDid(registeredDid)) {
+        return undefined;
+    }
+    const doc = await resolveWebvhDocument(registeredDid);
+    const entry = (doc.service ?? []).find((service) => [service?.type].flat().includes(DELEGATED_CLIENTS_SERVICE_TYPE));
+    return typeof entry?.serviceEndpoint === "string" ? entry.serviceEndpoint : undefined;
+}
+
 // True when `event` (an HTTP API payload v2 event) carries a zcap invocation
-// of its own URL signed by `registeredDid`. The URL is rebuilt from the
-// request's proto/host/path, so signatures verify under sam local as well as
-// behind API Gateway, and includes the query string, so signed query
-// parameters (email, space) cannot be swapped. Header names are lowercased
-// first: API Gateway delivers them lowercase, sam local preserves casing.
+// of its own URL signed by `registeredDid`, or by the client-annex DID the
+// registered account's document points at. A wallet session opened with a
+// password is a transient client of the account's annex: its key is listed
+// in the annex document, under capabilityInvocation, not in the account
+// document, and the annex DID is what the account names as its delegated
+// clients. A session opened with a passkey is an enrolled client whose key
+// the account document itself lists. The URL is rebuilt from the request's
+// proto/host/path, so signatures verify under sam local as well as behind
+// API Gateway, and includes the query string, so signed query parameters
+// (email, space) cannot be swapped. Header names are lowercased first: API
+// Gateway delivers them lowercase, sam local preserves casing.
 export async function verifyAccountInvocation({ event, registeredDid }) {
     const headers = Object.fromEntries(
         Object.entries(event.headers ?? {}).map(([name, value]) => [name.toLowerCase(), value])
@@ -36,7 +64,20 @@ export async function verifyAccountInvocation({ event, registeredDid }) {
     const query = event.rawQueryString ? `?${event.rawQueryString}` : "";
     const url = `${proto}://${host}${event.rawPath}${query}`;
     const method = event.requestContext.http.method;
-    const rootCapability = createRootCapability({ controller: registeredDid, invocationTarget: url });
+    // The root capability's controller: the registered DID, or the annex
+    // DID when that is what signed and the account points at it.
+    let controller = registeredDid;
+    const signer = signerDidOf(headers);
+    if (signer && signer !== registeredDid && isWebvhDid(signer)) {
+        const annex = await clientAnnexDidOf(registeredDid).catch((error) => {
+            console.error("Could not read the account's delegated-clients pointer:", error);
+            return undefined;
+        });
+        if (annex === signer) {
+            controller = annex;
+        }
+    }
+    const rootCapability = createRootCapability({ controller, invocationTarget: url });
     const wrappedLoader = async (documentUrl) => {
         if (documentUrl === rootCapability.id) {
             return { contextUrl: null, documentUrl, document: rootCapability };
