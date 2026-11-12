@@ -1,6 +1,6 @@
 // End-to-end wire test: signs a zCap invocation the same way the front end
 // will (key derived from SHA-256 of a password) and POSTs it over HTTP to the
-// sam local API, against a temporary account in the real wallet-test table.
+// sam local API, against a temporary account in the real lcw-accounts table.
 // Usage: node test/wire-test.mjs (needs the sam local API on :3001 and AWS creds).
 import { createHash } from "node:crypto";
 import "@interop/http-client";
@@ -24,7 +24,7 @@ const ddb = new DynamoDBClient({ region: "us-east-1" });
 // Identity in the accounts table, the space in the PWS server's spaces registry -
 // the same split the registration state machine writes.
 await ddb.send(new PutItemCommand({
-    TableName: "wallet-test",
+    TableName: "lcw-accounts",
     Item: {
         email: { S: EMAIL },
         did: { S: key.controller },
@@ -32,7 +32,7 @@ await ddb.send(new PutItemCommand({
     }
 }));
 await ddb.send(new PutItemCommand({
-    TableName: "was-spaces",
+    TableName: "pws-spaces",
     Item: {
         spaceURL: { S: SPACE_URL },
         did: { S: key.controller },
@@ -81,11 +81,11 @@ try {
     process.exit(res.status === 200 && badRes.status === 401 ? 0 : 1);
 } finally {
     await ddb.send(new DeleteItemCommand({
-        TableName: "wallet-test",
+        TableName: "lcw-accounts",
         Key: { email: { S: EMAIL } }
     }));
     await ddb.send(new DeleteItemCommand({
-        TableName: "was-spaces",
+        TableName: "pws-spaces",
         Key: { spaceURL: { S: SPACE_URL } }
     }));
     console.log("temp account + space removed");

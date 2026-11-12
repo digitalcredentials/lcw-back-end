@@ -25,7 +25,7 @@ const dynamo = new DynamoDBClient();
 const kms = new KMSClient();
 const ses = new SESv2Client();
 
-const ACCOUNTS_TABLE = process.env.ACCOUNTS_TABLE_NAME ?? "wallet-test";
+const ACCOUNTS_TABLE = process.env.ACCOUNTS_TABLE_NAME ?? "lcw-accounts";
 const RECOVERY_TABLE = process.env.RECOVERY_TABLE_NAME ?? "lcw-recovery";
 const KEY_ID = process.env.RECOVERY_KEY_ID;
 const FROM_EMAIL = process.env.FROM_EMAIL;
