@@ -32,7 +32,10 @@ A registration flow and a zCap-authenticated login endpoint:
   `https://w3id.org/byoe#DelegatedClients` service type (a wallet session
   opened with a password is a transient client of that annex, whose keys the
   annex document lists; one opened with a passkey is an enrolled client the
-  account document lists itself), and on success returns the account's
+  account document lists itself; a signer the cached document does not
+  name is checked once more against a fresh resolution, since a recovery
+  login re-points the annex entry and signs in at once), and on success
+  returns the account's
   registration `token` (the PWS server's space-creation coupon). Identity
   only: the wallet lists its spaces through the PWS server. All rejections
   return a generic 401.

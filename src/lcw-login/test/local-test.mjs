@@ -9,7 +9,7 @@ import { Ed25519VerificationKey } from "@interop/ed25519-verification-key";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { handler } from "../index.mjs";
-import { createDID, signerFromDidKeySigner, logToJsonlString } from "@interop/did-method-webvh";
+import { createDID, updateDID, signerFromDidKeySigner, logToJsonlString } from "@interop/did-method-webvh";
 import { clearWebvhCache } from "webvh-verify";
 
 const HOST = "iibe16rs13.execute-api.us-east-1.amazonaws.com";
@@ -174,6 +174,45 @@ console.log(`   annex client ${annexOk ? "ok" : "FAIL"}`);
 const annexElsewhere = await run("signed as an annex the account does not name -> 401", accountSignedEvent({ email: EMAIL }, annexSigner), { registeredDid: minted.did });
 const annexElsewhereOk = annexElsewhere.statusCode === 401;
 console.log(`   unnamed annex refused ${annexElsewhereOk ? "ok" : "FAIL"}`);
+
+// The annex the account names moves: a recovery login mints a fresh
+// generation, re-points the account document at it, and signs in under it
+// in the same second, while the resolver's cache (warmed by the login
+// above) still holds the document naming the previous one. The verifier
+// looks once more at a fresh resolution before refusing.
+const annex2Key = await Ed25519VerificationKey.generate();
+const annex2Multibase = annex2Key.fingerprint();
+annex2Key.controller = `did:key:${annex2Multibase}`;
+annex2Key.id = `${annex2Key.controller}#${annex2Multibase}`;
+const annex2 = await createDID({
+    address: "id.test",
+    paths: ["annex2"],
+    signer: signerFromDidKeySigner(annex2Key.signer()),
+    updateKeys: [`did:key:${annex2Multibase}`],
+    verificationMethods: [{ type: "Multikey", publicKeyMultibase: annex2Multibase }],
+    vmIdFragment: "multibase",
+    capabilityInvocation: [`#${annex2Multibase}`],
+    capabilityDelegation: [`#${annex2Multibase}`]
+});
+const repointed = await updateDID({
+    log: pointed.log,
+    signer: signerFromDidKeySigner(key.signer()),
+    updateKeys: [did],
+    verificationMethods: [{ type: "Multikey", publicKeyMultibase: multibase }],
+    vmIdFragment: "multibase",
+    authentication: [`#${multibase}`],
+    assertionMethod: [`#${multibase}`],
+    capabilityInvocation: [`#${multibase}`],
+    capabilityDelegation: [`#${multibase}`],
+    services: [{ id: "#delegated-clients", type: "https://w3id.org/byoe#DelegatedClients", serviceEndpoint: annex2.did }]
+});
+logs["https://id.test/space2/did.jsonl"] = logToJsonlString(repointed.log);
+logs["https://id.test/annex2/did.jsonl"] = logToJsonlString(annex2.log);
+const annex2Inner = annex2Key.signer();
+const annex2Signer = { id: `${annex2.did}#${annex2Multibase}`, algorithm: annex2Inner.algorithm, sign: annex2Inner.sign.bind(annex2Inner) };
+const repointedLogin = await run("signed as the annex the account re-pointed to a moment ago -> 200", accountSignedEvent({ email: EMAIL }, annex2Signer), { registeredDid: pointed.did });
+const repointedOk = repointedLogin.statusCode === 200 && JSON.parse(repointedLogin.body).controller === pointed.did;
+console.log(`   re-pointed annex ${repointedOk ? "ok" : "FAIL"}`);
 globalThis.fetch = realFetch;
 
-process.exit(registeredOk && webvhOk && strangerOk && annexOk && annexElsewhereOk ? 0 : 1);
+process.exit(registeredOk && webvhOk && strangerOk && annexOk && annexElsewhereOk && repointedOk ? 0 : 1);
