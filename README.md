@@ -23,7 +23,16 @@ A registration flow and a zCap-authenticated login endpoint:
 - **`registration-email-confirmation`** — a Node.js Lambda invoked via
   `GET /confirm?token=...` on an API Gateway HTTP API. When the user clicks
   the confirmation link, it calls `states:SendTaskSuccess` with the task token
-  to resume the paused registration execution.
+  to resume the paused registration execution, passing the token's SHA-256
+  as the account's `confirmationKey`, and shows a page that says the wallet
+  is being set up. The page polls `GET /confirm/status?key=...` (the same
+  function; a query on the table's `confirmationKey-index`) every two
+  seconds and offers **Open my wallet** only once the account row is there,
+  so the button cannot lead to a login before the account exists. After two
+  minutes without the row it falls back to the "you will receive an email"
+  text; without scripting it shows the button straight away, as before.
+  `cd src/registration-email-confirmation && npm install && npm test` runs
+  its tests with Step Functions and DynamoDB mocked.
 - **`lcw-login`** — a Node.js Lambda invoked via `POST /login` with a JSON
   body containing an `email`. It verifies the request's
   [HTTP-signature capability invocation](https://github.com/interop-alliance/http-signature-zcap-verify)
@@ -188,7 +197,9 @@ curl "http://localhost:3000/confirm?token=test-token"
 
 (The `SendTaskSuccess` call will fail without a real task token from a
 running Step Functions execution, but this exercises the routing and
-error handling.)
+error handling.) `curl "http://localhost:3000/confirm/status?key=<64 hex>"`
+exercises the status route, which answers `{"ready":false}` for a key no
+account carries.
 
 ## Validate the template
 

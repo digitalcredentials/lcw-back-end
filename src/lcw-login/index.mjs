@@ -31,9 +31,12 @@ export const handler = async (event) => {
     // 2. Look up the account so the registered DID can control the root zcap
     let account;
     try {
+        // A consistent read: the row is written moments before the first
+        // login, when the person confirms their email and opens the wallet
         ({ Item: account } = await dynamoClient.send(new GetItemCommand({
             TableName: TABLE_NAME,
-            Key: { email: { S: email } }
+            Key: { email: { S: email } },
+            ConsistentRead: true
         })));
     } catch (error) {
         console.error("Error looking up account:", error);

@@ -82,11 +82,16 @@ Resources:
           WALLET_URL: !Ref WalletUrl
           ORG_NAME: !Ref OrgName
           LOGO_URL: !Ref LogoUrl
+          TABLE_NAME: !Ref AccountsTable
       Policies:
         - Statement:
             - Effect: Allow
               Action: states:SendTaskSuccess
               Resource: '*'
+        # The status route looks the account row up by confirmation key
+        # (the table's confirmationKey-index)
+        - DynamoDBReadPolicy:
+            TableName: !Ref AccountsTable
       Events:
         ConfirmRoute:
           Type: HttpApi
@@ -94,6 +99,12 @@ Resources:
             ApiId: !Ref ConfirmationHttpApi
             Method: GET
             Path: /confirm
+        StatusRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: GET
+            Path: /confirm/status
 
   LcwRegisterFunction:
     Type: AWS::Serverless::Function
@@ -278,6 +289,11 @@ Resources:
                 # the WAS server's space-creation coupon is checked against.
                 token:
                   S: '{% $states.context.Execution.Input.registrationCode %}'
+                # The hash of the confirmation link's task token, which the
+                # confirmation page polls the row by (GET /confirm/status)
+                # before it offers to open the wallet
+                confirmationKey:
+                  S: '{% $states.input.confirmationKey ? $states.input.confirmationKey : "none" %}'
                 CreatedAt:
                   S: '{% $now() %}'
             Next: SendEmailConf
@@ -311,9 +327,20 @@ Resources:
       AttributeDefinitions:
         - AttributeName: email
           AttributeType: S
+        - AttributeName: confirmationKey
+          AttributeType: S
       KeySchema:
         - AttributeName: email
           KeyType: HASH
+      # The confirmation page finds a fresh account by the hash of its
+      # confirmation token, which is all the page holds
+      GlobalSecondaryIndexes:
+        - IndexName: confirmationKey-index
+          KeySchema:
+            - AttributeName: confirmationKey
+              KeyType: HASH
+          Projection:
+            ProjectionType: KEYS_ONLY
 
   # The spaces registry: one row per WAS space, keyed by the space URL (which
   # is what the WAS server's authorizer resolves a controller DID from).
