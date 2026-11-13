@@ -6,7 +6,8 @@
   "type": "module",
   "main": "dist/index.mjs",
   "scripts": {
-    "build": "esbuild src/index.mjs --bundle --platform=node --format=esm --target=node22 --outfile=dist/index.mjs --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\""
+    "build": "esbuild src/index.mjs --bundle --platform=node --format=esm --target=node22 --outfile=dist/index.mjs --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
+    "test": "node --test test/webvh.test.mjs"
   },
   "dependencies": {
     "@interop/did-method-webvh": "^5.15.0",

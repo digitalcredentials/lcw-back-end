@@ -68,8 +68,13 @@ A registration flow and a zCap-authenticated login endpoint:
   ([batch-issuer-backend](../batch-issuer-backend)): the invocation of the
   request's own URL must be signed by the DID registered for the email, and
   a registered `did:webvh` is controlled by whichever keys its log's current
-  document lists (fetched from the identity domain, cached briefly,
-  refreshed once when a key is missing). The layer is bundled with its
+  document lists (fetched from the identity domain, cached for
+  `WEBVH_CACHE_SECONDS` and then validated with a conditional fetch against
+  the log's ETag, so an unchanged log keeps the document and the walk it
+  cost, and a log that grows with every client and credential is fetched
+  and walked again only when it changed; a key the cached document does not
+  list takes the same conditional fetch). `cd layers/webvh-verify && npm
+  test` runs the resolver's test over a log minted on the spot. The layer is bundled with its
   dependencies into one ES module (`npm run build`), the functions leave
   `webvh-verify` external and import it from the layer at runtime, and the
   stack publishes the current layer version's ARN in the SSM parameter

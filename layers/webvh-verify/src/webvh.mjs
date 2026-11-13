@@ -43,14 +43,51 @@ async function limitedFetch(url, init = {}) {
   return response;
 }
 
+const isLogUrl = (url) => String(url).endsWith("/did.jsonl");
+
+// By DID: the resolved document, the ETag of the log it came from, and
+// when the document is next validated
 const cache = new Map();
 
-export async function resolveWebvhDocument(did, { fresh = false } = {}) {
+// A document is kept for CACHE_MS and then validated, not discarded: the
+// log is fetched conditionally against the ETag the document came from,
+// and an unchanged log (a 304) keeps the document, and the walk of the log
+// it cost, for another lifetime. An account log grows with every client
+// and credential, so it is downloaded and walked again only when it
+// changed, which is also what `fresh` (a key the cached document does not
+// list) needs: an unchanged log lists no new key either. `now` is for tests.
+export async function resolveWebvhDocument(did, { fresh = false, now = Date.now } = {}) {
   const cached = cache.get(did);
-  if (cached && cached.expires > Date.now() && !fresh) {
+  if (cached && cached.expires > now() && !fresh) {
     return cached.doc;
   }
-  const result = await webvh.resolveDID(did, { fetch: limitedFetch });
+  let etag;
+  let notModified = false;
+  const fetchImpl = async (url, init = {}) => {
+    const conditional = isLogUrl(url) && cached?.etag !== undefined;
+    const response = await limitedFetch(url, conditional ? { ...init, headers: { ...(init.headers ?? {}), "if-none-match": cached.etag } } : init);
+    if (conditional && response.status === 304) {
+      notModified = true;
+      // The driver stops here; the document it would walk to is the one cached
+      throw new Error("not modified");
+    }
+    if (isLogUrl(url)) {
+      etag = response.headers?.get?.("etag") ?? undefined;
+    }
+    return response;
+  };
+  let result;
+  try {
+    result = await webvh.resolveDID(did, { fetch: fetchImpl });
+  } catch (err) {
+    if (!notModified) {
+      throw err;
+    }
+  }
+  if (notModified) {
+    cached.expires = now() + CACHE_MS;
+    return cached.doc;
+  }
   if (!result.didDocument) {
     throw new Error(`${did} does not resolve: ${result.didResolutionMetadata?.error ?? "no document"}.`);
   }
@@ -58,7 +95,7 @@ export async function resolveWebvhDocument(did, { fresh = false } = {}) {
     throw new Error(`${did} is deactivated.`);
   }
   const doc = absoluteIds(result.didDocument);
-  cache.set(did, { doc, expires: Date.now() + CACHE_MS });
+  cache.set(did, { doc, etag, expires: now() + CACHE_MS });
   return doc;
 }
 
