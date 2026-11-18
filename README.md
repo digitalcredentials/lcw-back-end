@@ -1,5 +1,10 @@
 # lcw-back-end
 
+> [!IMPORTANT]
+> **Alpha.** This is part of the Learner Credential Wallet alpha, an early test
+> version. It may change without notice. We read issues, but may not answer or
+> fix them during the alpha.
+
 Back-end infrastructure for the Learner Credential Wallet (LCW), defined with
 [AWS SAM](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/what-is-sam.html)
 and deployed as a single CloudFormation stack.
@@ -227,3 +232,7 @@ account carries.
 ```bash
 sam validate --lint
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
