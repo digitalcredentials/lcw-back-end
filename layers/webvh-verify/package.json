@@ -1,6 +1,7 @@
 {
   "name": "webvh-verify",
   "version": "1.0.0",
+  "license": "MIT",
   "private": true,
   "description": "Lambda layer: zCap invocation verification against a registered did:key or did:webvh",
   "type": "module",
