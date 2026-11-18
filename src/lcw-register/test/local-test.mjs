@@ -39,6 +39,19 @@ const started = sfnMock.commandCalls(StartExecutionCommand);
 const input = JSON.parse(started[0].args[0].input.input);
 console.log(`\n   execution input: ${JSON.stringify(input)}`);
 
+// The contact choice rides to the account row: true only when ticked
+const agreed = await run("ticked contact choice -> 202, passed on as true", JSON.stringify({
+    email: "a@b.com", did: "did:key:z6MkTest", registrationCode: "test-registration-code", contactOptIn: true
+}));
+const agreedInput = JSON.parse(sfnMock.commandCalls(StartExecutionCommand)[0].args[0].input.input);
+const odd = await run("a non-boolean contact choice -> passed on as false", JSON.stringify({
+    email: "a@b.com", did: "did:key:z6MkTest", registrationCode: "test-registration-code", contactOptIn: "yes"
+}));
+const oddInput = JSON.parse(sfnMock.commandCalls(StartExecutionCommand)[0].args[0].input.input);
+console.log(`\n   contact choice passed on: none -> ${input.contactOptIn}, true -> ${agreedInput.contactOptIn}, "yes" -> ${oddInput.contactOptIn}`);
+
 process.exit(
-    ok.statusCode === 202 && input.recipientEmail === "a@b.com" && input.did === "did:key:z6MkTest" ? 0 : 1
+    ok.statusCode === 202 && input.recipientEmail === "a@b.com" && input.did === "did:key:z6MkTest" &&
+    input.contactOptIn === false && agreed.statusCode === 202 && agreedInput.contactOptIn === true &&
+    odd.statusCode === 202 && oddInput.contactOptIn === false ? 0 : 1
 );

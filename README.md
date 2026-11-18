@@ -9,14 +9,16 @@ and deployed as a single CloudFormation stack.
 A registration flow and a zCap-authenticated login endpoint:
 
 - **`lcw-register`** — a Node.js Lambda invoked via `POST /register` with
-  `{email, did, registrationCode}`. It gates on the deployment's registration
-  code and starts the registration state machine, passing the code through so
-  it is stored on the account.
+  `{email, did, registrationCode, contactOptIn}`. It gates on the
+  deployment's registration code and starts the registration state machine,
+  passing the code through so it is stored on the account, and the answer to
+  the register page's "Contact me with news and updates" (anything but
+  `true` is no).
 - **`wallet-account-creator`** — a Step Functions state machine that registers
   an account: it emails the user a confirmation link (pausing on a task
   token), then records the account (email → `did` plus the registration
-  `token`) in the `lcw-accounts` DynamoDB table and emails the user a
-  confirmation. The account's storage is not this stack's concern: the
+  `token` and the contact choice) in the `lcw-accounts` DynamoDB table and
+  emails the user a confirmation. The account's storage is not this stack's concern: the
   wallet creates its own Main Space on the PWS server
   ([was-server-aws](../was-server-aws)), with the registration code as the
   coupon, as part of registering.
@@ -62,9 +64,19 @@ A registration flow and a zCap-authenticated login endpoint:
   controls are the encryption at rest, the registered address as the only
   destination, the rate limit, the log line per send, and the wallet
   replacing the code after every use.
+- **`lcw-contact`** — a Node.js Lambda holding the tester's answer to
+  "Contact me with news and updates", asked at registration and changed
+  from the wallet's Settings: `GET /contact?email=` answers
+  `{contactOptIn, updatedAt}` and `PUT /contact` `{email, contactOptIn}`
+  records a change, both signed as the account and verified the way `/login`
+  is. Its role can update only the two contact attributes of a row, never
+  its `did` or `token`. The team's list of who agreed is the admin
+  console's ([lcw-admin-back-end](https://github.com/digitalcredentials/lcw-admin-back-end)),
+  which reads the same table. `cd src/lcw-contact && npm install && npm
+  test` runs its tests with real signed invocations.
 - **`webvh-verify`** (`layers/webvh-verify/`) — a Lambda layer holding the
-  one copy of the zCap invocation verifier `lcw-login` and `lcw-recovery`
-  share with the batch issuer's notify function
+  one copy of the zCap invocation verifier `lcw-login`, `lcw-recovery` and
+  `lcw-contact` share with the batch issuer's notify function
   ([batch-issuer-backend](../batch-issuer-backend)): the invocation of the
   request's own URL must be signed by the DID registered for the email, and
   a registered `did:webvh` is controlled by whichever keys its log's current
@@ -82,8 +94,10 @@ A registration flow and a zCap-authenticated login endpoint:
   versions are retained, since that stack references one until its next
   deploy.
 - **`lcw-accounts`** — the DynamoDB accounts table (partition key `email`,
-  on-demand billing) holding each account's `did`, registration `token`, and
-  `CreatedAt`.
+  on-demand billing) holding each account's `did`, registration `token`,
+  `CreatedAt`, and contact choice (`contactOptIn`, `contactOptInUpdatedAt`;
+  a row without them, an account registered before the question, reads as
+  no).
 
 | Path | Purpose |
 | --- | --- |
@@ -94,6 +108,8 @@ A registration flow and a zCap-authenticated login endpoint:
 | `src/lcw-login/index.mjs` | Login Lambda handler |
 | `src/lcw-login/test/local-test.mjs` | Local test for the login handler |
 | `src/lcw-login/test/wire-test.mjs` | Signed end-to-end test against the local API |
+| `src/lcw-contact/index.mjs` | Contact-choice Lambda handler |
+| `src/lcw-contact/test/local-test.mjs` | Local test for the contact-choice handler |
 
 ## Parameters
 

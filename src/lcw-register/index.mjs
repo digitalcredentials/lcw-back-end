@@ -10,12 +10,12 @@ const json = (statusCode, body) => ({
 
 export const handler = async (event) => {
     // 1. Extract the registration fields from the JSON POST body
-    let email, did, registrationCode;
+    let email, did, registrationCode, contactOptIn;
     try {
         const rawBody = event.isBase64Encoded
             ? Buffer.from(event.body ?? "", "base64").toString("utf8")
             : event.body;
-        ({ email, did, registrationCode } = JSON.parse(rawBody ?? "{}"));
+        ({ email, did, registrationCode, contactOptIn } = JSON.parse(rawBody ?? "{}"));
     } catch {
         return json(400, { error: "Request body must be valid JSON." });
     }
@@ -39,11 +39,13 @@ export const handler = async (event) => {
     // 3. Start the registration state machine; it emails the confirmation
     // link and, once confirmed, provisions the account. The registration code
     // is passed through so it can be stored on the account row as the token
-    // the WAS server's space-creation coupon is checked against.
+    // the WAS server's space-creation coupon is checked against, and the
+    // answer to "Contact me with news and updates" (anything but true is no)
+    // so it is stored with the account too.
     try {
         await sfnClient.send(new StartExecutionCommand({
             stateMachineArn: process.env.STATE_MACHINE_ARN,
-            input: JSON.stringify({ recipientEmail: email, did, registrationCode })
+            input: JSON.stringify({ recipientEmail: email, did, registrationCode, contactOptIn: contactOptIn === true })
         }));
     } catch (error) {
         console.error("Error starting registration execution:", error);
