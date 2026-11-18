@@ -118,7 +118,8 @@ async function status(event) {
 }
 
 function emailBody({ code }) {
-    const link = WALLET_URL ? `${WALLET_URL}/forgot` : "";
+    // The wallet's pages are # addresses; a path would open its plain address
+    const link = WALLET_URL ? `${WALLET_URL}/#/forgot` : "";
     const text =
         "You asked to recover your Learner Credential Wallet account.\n\n" +
         `Your recovery code is:\n\n${code}\n\n` +

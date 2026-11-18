@@ -125,6 +125,9 @@ check("forgot mails the code to the registered address", res.statusCode === 202 
   sends[0].args[0].input.Destination.ToAddresses[0] === EMAIL &&
   sends[0].args[0].input.Content.Simple.Body.Text.Data.includes(CODE) &&
   sends[0].args[0].input.Content.Simple.Body.Html.Data.includes(CODE));
+check("the recovery email links the wallet's recovery page by its # address",
+  sends[0].args[0].input.Content.Simple.Body.Text.Data.includes("https://wallet.example.org/#/forgot") &&
+  sends[0].args[0].input.Content.Simple.Body.Html.Data.includes("https://wallet.example.org/#/forgot"));
 const answered = res.body;
 
 reset({ registered: false });

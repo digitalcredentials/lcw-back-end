@@ -35,6 +35,8 @@ test("a token the state machine refuses shows the already-confirmed page, with t
   assert.equal(res.statusCode, 400);
   assert.match(res.body, /no longer works/);
   assert.match(res.body, /Open my wallet/);
+  // The button opens the wallet's sign-in page, not its plain address
+  assert.match(res.body, /href="https:\/\/lcw-sandbox\.org\/#\/login"/);
 });
 
 test("an accepted token hands the key to the state machine and shows the waiting page", async () => {
@@ -51,6 +53,7 @@ test("an accepted token hands the key to the state machine and shows the waiting
   assert.match(res.body, new RegExp(`/confirm/status\\?key=${KEY}`));
   const visible = res.body.replace(/<noscript>[\s\S]*?<\/noscript>/, "").replace(/<script>[\s\S]*?<\/script>/, "");
   assert.doesNotMatch(visible, /Open my wallet/);
+  assert.match(res.body, /https:\/\/lcw-sandbox\.org\/#\/login/);
   assert.equal(res.headers["Cache-Control"], "no-store");
 });
 
