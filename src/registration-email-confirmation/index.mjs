@@ -12,6 +12,10 @@ import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
 const sfnClient = new SFNClient();
 const dynamoClient = new DynamoDBClient();
 const WALLET_URL = process.env.WALLET_URL ?? "https://lcw-sandbox.org";
+// The wallet's sign-in page by its own address: on a deployment with a
+// welcome page, the wallet sends a signed-out visitor at its plain address
+// to that page instead
+const SIGN_IN_URL = `${WALLET_URL.replace(/\/+$/, "")}/#/login`;
 const ORG_NAME = process.env.ORG_NAME ?? "Digital Credentials Commons";
 const LOGO_URL = process.env.LOGO_URL ?? "https://digitalcredentials.github.io/badge-assets/dcc-commons-mark.png";
 const TABLE_NAME = process.env.TABLE_NAME ?? "lcw-accounts";
@@ -79,14 +83,14 @@ const json = (statusCode, body) => ({
 // signal, as before.
 function waitingPage(key) {
   const waiting = paragraphs(["Thank you. Hang tight, we are setting up your wallet."]);
-  const ready = paragraphs(["Your wallet is ready. Sign in with your email address and the passphrase you chose."]) + button({ label: "Open my wallet", url: WALLET_URL });
+  const ready = paragraphs(["Your wallet is ready. Sign in with your email address and the passphrase you chose."]) + button({ label: "Open my wallet", url: SIGN_IN_URL });
   const late = paragraphs([
     "This is taking longer than expected. You will receive an email when your wallet is ready; sign in then with your email address and the passphrase you chose.",
   ]);
   const fallback = paragraphs([
     "Thank you. Your wallet account is being set up; you will receive one more email when it is ready.",
     "You can close this tab, or open the wallet now.",
-  ]) + button({ label: "Open my wallet", url: WALLET_URL });
+  ]) + button({ label: "Open my wallet", url: SIGN_IN_URL });
   return page({
     title: "Email confirmed",
     body: `<div id="status">${waiting}</div>
@@ -171,7 +175,7 @@ async function confirm(event) {
       body: paragraphs([
         "The confirmation link may have expired, or the email address may already have been confirmed.",
         "If you have already confirmed, you can sign in to your wallet.",
-      ]) + button({ label: "Open my wallet", url: WALLET_URL }),
+      ]) + button({ label: "Open my wallet", url: SIGN_IN_URL }),
     }));
   }
   return html(200, waitingPage(key));

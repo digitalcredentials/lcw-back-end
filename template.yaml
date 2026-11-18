@@ -12,7 +12,7 @@ Parameters:
     Default: lcw-sandbox.org
   WalletUrl:
     Type: String
-    Description: The wallet's URL, linked from the registration emails and the confirmation page.
+    Description: The wallet's URL, without a trailing slash. The registration emails and the confirmation page link its sign-in page (#/login), the recovery email its recovery page (#/forgot).
     Default: https://lcw-sandbox.org
   OrgName:
     Type: String
@@ -311,12 +311,12 @@ Resources:
                     Data: Your wallet is ready
                   Body:
                     Text:
-                      Data: "You have been registered! Open your wallet at ${WalletUrl} and sign in with your email and the passphrase you chose."
+                      Data: "You have been registered! Open your wallet at ${WalletUrl}/#/login and sign in with your email and the passphrase you chose."
                     Html:
                       Data: >-
                         ${EmailHead}<h1 style='font-size:22px;margin:16px 0;'>Your wallet is ready</h1>
                         <p>Your Learner Credential Wallet account is set up. Sign in with your email address and the passphrase you chose.</p>
-                        <p style='margin:24px 0;'><a href='${WalletUrl}' style='${ButtonStyle}'>Open my wallet</a></p>${EmailFoot}
+                        <p style='margin:24px 0;'><a href='${WalletUrl}/#/login' style='${ButtonStyle}'>Open my wallet</a></p>${EmailFoot}
             End: true
 
   AccountsTable:
