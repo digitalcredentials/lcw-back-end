@@ -50,8 +50,13 @@ const odd = await run("a non-boolean contact choice -> passed on as false", JSON
 const oddInput = JSON.parse(sfnMock.commandCalls(StartExecutionCommand)[0].args[0].input.input);
 console.log(`\n   contact choice passed on: none -> ${input.contactOptIn}, true -> ${agreedInput.contactOptIn}, "yes" -> ${oddInput.contactOptIn}`);
 
+// The code is checked here and goes no further: nothing of it reaches the
+// state machine, which writes the account row
+const codeKept = [input, agreedInput, oddInput].some((entry) => JSON.stringify(entry).includes("test-registration-code"));
+console.log(`   registration code passed on: ${codeKept ? "yes (FAIL)" : "no"}`);
+
 process.exit(
     ok.statusCode === 202 && input.recipientEmail === "a@b.com" && input.did === "did:key:z6MkTest" &&
     input.contactOptIn === false && agreed.statusCode === 202 && agreedInput.contactOptIn === true &&
-    odd.statusCode === 202 && oddInput.contactOptIn === false ? 0 : 1
+    odd.statusCode === 202 && oddInput.contactOptIn === false && !codeKept ? 0 : 1
 );

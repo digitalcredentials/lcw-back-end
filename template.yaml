@@ -205,8 +205,9 @@ Resources:
 
   # The /spaces API (create, list, delete the account's WAS spaces) moved to
   # the was-server-aws stack, where it implements the WAS spec's space registry
-  # endpoints with coupon-gated creation and owns the spaces registry. The
-  # wallet creates its own Main Space there at registration; this stack only
+  # endpoints and owns the spaces registry. The wallet creates its own account
+  # Space there at registration, with the registration code (that server's
+  # coupon), and every further Space under it with no code; this stack only
   # records the email against the signing DID and confirms the address.
 
   WalletAccountCreatorStateMachine:
@@ -286,10 +287,6 @@ Resources:
                   S: '{% $states.context.Execution.Input.recipientEmail %}'
                 did:
                   S: '{% $states.context.Execution.Input.did %}'
-                # The registration code the user provided, kept as the token
-                # the WAS server's space-creation coupon is checked against.
-                token:
-                  S: '{% $states.context.Execution.Input.registrationCode %}'
                 # The hash of the confirmation link's task token, which the
                 # confirmation page polls the row by (GET /confirm/status)
                 # before it offers to open the wallet
@@ -493,7 +490,7 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: !Ref AccountsTable
         # An update of the two contact attributes alone: the function can
-        # never rewrite an account's did or token
+        # never rewrite an account's did
         - Statement:
             - Effect: Allow
               Action: dynamodb:UpdateItem

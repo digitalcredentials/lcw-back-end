@@ -37,15 +37,16 @@ export const handler = async (event) => {
     }
 
     // 3. Start the registration state machine; it emails the confirmation
-    // link and, once confirmed, provisions the account. The registration code
-    // is passed through so it can be stored on the account row as the token
-    // the WAS server's space-creation coupon is checked against, and the
-    // answer to "Contact me with news and updates" (anything but true is no)
-    // so it is stored with the account too.
+    // link and, once confirmed, records the account. The registration code
+    // goes no further than the check above: it is not stored with the
+    // account (the PWS server spends it once, on the account Space the
+    // wallet creates at signup). The answer to "Contact me with news and
+    // updates" (anything but true is no) is passed on so it is stored with
+    // the account.
     try {
         await sfnClient.send(new StartExecutionCommand({
             stateMachineArn: process.env.STATE_MACHINE_ARN,
-            input: JSON.stringify({ recipientEmail: email, did, registrationCode, contactOptIn: contactOptIn === true })
+            input: JSON.stringify({ recipientEmail: email, did, contactOptIn: contactOptIn === true })
         }));
     } catch (error) {
         console.error("Error starting registration execution:", error);

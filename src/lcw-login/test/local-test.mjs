@@ -48,8 +48,8 @@ async function signedEvent({ email }) {
 
 async function run(name, eventPromise, { registeredDid } = {}) {
     ddbMock.reset();
-    // The account row: email -> did, plus the registration token the WAS
-    // server's space-creation coupon is checked against.
+    // The account row: email -> did. A row written before the registration
+    // code stopped being stored also holds it, as `token`.
     ddbMock.on(GetItemCommand).resolves(
         registeredDid
             ? { Item: { email: { S: EMAIL }, did: { S: registeredDid }, token: { S: "secret-code" } } }
@@ -73,15 +73,17 @@ await run("signed, different DID registered -> 401", signedEvent({ email: EMAIL 
     registeredDid: "did:key:z6MkfDLjE5Kip9E7YRitEbrNAcCYi2AviAY8Ny7hoYnCSgav"
 });
 const registered = await run("signed, matching DID -> 200", signedEvent({ email: EMAIL }), { registeredDid: did });
-// Identity only: the controller and the token, no spaces (the wallet lists
-// them through the PWS server).
+// Identity only: the controller, no spaces (the wallet lists them through
+// the PWS server), and nothing of the registration code, which an older
+// row still holds.
 const registeredBody = JSON.parse(registered.body);
 const registeredOk = registered.statusCode === 200 &&
     registeredBody.controller === did &&
-    registeredBody.token === "secret-code" &&
+    registeredBody.token === undefined &&
+    !registered.body.includes("secret-code") &&
     registeredBody.space === undefined &&
     registeredBody.spaces === undefined;
-console.log(`   controller + token, no spaces ${registeredOk ? "ok" : "FAIL"}`);
+console.log(`   controller, no registration code, no spaces ${registeredOk ? "ok" : "FAIL"}`);
 
 
 // An account registered as a did:webvh: the key signs under its verification

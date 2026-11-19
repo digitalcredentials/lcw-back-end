@@ -11,17 +11,18 @@ A registration flow and a zCap-authenticated login endpoint:
 - **`lcw-register`** — a Node.js Lambda invoked via `POST /register` with
   `{email, did, registrationCode, contactOptIn}`. It gates on the
   deployment's registration code and starts the registration state machine,
-  passing the code through so it is stored on the account, and the answer to
-  the register page's "Contact me with news and updates" (anything but
-  `true` is no).
+  passing on the answer to the register page's "Contact me with news and
+  updates" (anything but `true` is no). The code goes no further than that
+  check: it is not stored.
 - **`wallet-account-creator`** — a Step Functions state machine that registers
   an account: it emails the user a confirmation link (pausing on a task
-  token), then records the account (email → `did` plus the registration
-  `token` and the contact choice) in the `lcw-accounts` DynamoDB table and
+  token), then records the account (email → `did` plus the contact choice)
+  in the `lcw-accounts` DynamoDB table and
   emails the user a confirmation. The account's storage is not this stack's concern: the
-  wallet creates its own Main Space on the PWS server
+  wallet creates its own account Space on the PWS server
   ([was-server-aws](../was-server-aws)), with the registration code as the
-  coupon, as part of registering.
+  coupon, as part of registering, and every further Space under that one
+  with no code.
 - **`registration-email-confirmation`** — a Node.js Lambda invoked via
   `GET /confirm?token=...` on an API Gateway HTTP API. When the user clicks
   the confirmation link, it calls `states:SendTaskSuccess` with the task token
@@ -46,8 +47,7 @@ A registration flow and a zCap-authenticated login endpoint:
   account document lists itself; a signer the cached document does not
   name is checked once more against a fresh resolution, since a recovery
   login re-points the annex entry and signs in at once), and on success
-  returns the account's
-  registration `token` (the PWS server's space-creation coupon). Identity
+  answers `{verified, email, controller}`. Identity
   only: the wallet lists its spaces through the PWS server. All rejections
   return a generic 401.
 - **`lcw-recovery`** — a Node.js Lambda holding each account's recovery code.
@@ -70,7 +70,7 @@ A registration flow and a zCap-authenticated login endpoint:
   `{contactOptIn, updatedAt}` and `PUT /contact` `{email, contactOptIn}`
   records a change, both signed as the account and verified the way `/login`
   is. Its role can update only the two contact attributes of a row, never
-  its `did` or `token`. The team's list of who agreed is the admin
+  its `did`. The team's list of who agreed is the admin
   console's ([lcw-admin-back-end](https://github.com/digitalcredentials/lcw-admin-back-end)),
   which reads the same table. `cd src/lcw-contact && npm install && npm
   test` runs its tests with real signed invocations.
@@ -94,10 +94,11 @@ A registration flow and a zCap-authenticated login endpoint:
   versions are retained, since that stack references one until its next
   deploy.
 - **`lcw-accounts`** — the DynamoDB accounts table (partition key `email`,
-  on-demand billing) holding each account's `did`, registration `token`,
+  on-demand billing) holding each account's `did`,
   `CreatedAt`, and contact choice (`contactOptIn`, `contactOptInUpdatedAt`;
   a row without them, an account registered before the question, reads as
-  no).
+  no). A row written before 2026-11-19 also holds the registration code the
+  account was made with, as `token`; nothing reads it.
 
 | Path | Purpose |
 | --- | --- |
@@ -124,9 +125,10 @@ A registration flow and a zCap-authenticated login endpoint:
   rule set, so after the first deploy run
   `aws ses set-active-receipt-rule-set --rule-set-name lcw-sandbox-inbound`.
 - **`RegistrationCode`** — code the registration form must supply (NoEcho;
-  the default is only for local development). The code the user provides is
-  stored on the account row as `token`, which the WAS server requires as the
-  coupon when creating further spaces.
+  the default is only for local development). It is compared and not
+  stored. The wallet sends the same code to the PWS server once, to create
+  the account Space, so the value must also be a coupon in that server's
+  `pws-coupons` table.
 ## Prerequisites
 
 - [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)
