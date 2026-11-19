@@ -27,7 +27,7 @@ const ddb = mockClient(DynamoDBClient);
 let accounts;
 function reset({ registered = true, extra = {} } = {}) {
   ddb.reset();
-  accounts = new Map(registered ? [[EMAIL, { email: { S: EMAIL }, did: { S: did }, token: { S: "code" }, ...extra }]] : []);
+  accounts = new Map(registered ? [[EMAIL, { email: { S: EMAIL }, did: { S: did }, CreatedAt: { S: "2026-11-01T00:00:00.000Z" }, ...extra }]] : []);
   ddb.on(GetItemCommand).callsFake(({ Key }) => ({ Item: accounts.get(Key.email.S) }));
   ddb.on(UpdateItemCommand).callsFake(({ Key, ExpressionAttributeValues: v }) => {
     const item = accounts.get(Key.email.S);
@@ -104,7 +104,7 @@ check("signed PUT records agreement", res.statusCode === 200 && JSON.parse(res.b
 const update = ddb.commandCalls(UpdateItemCommand)[0].args[0].input;
 check("the update touches the two contact attributes of an existing row only",
   update.UpdateExpression === "SET contactOptIn = :choice, contactOptInUpdatedAt = :at" && update.ConditionExpression === "attribute_exists(email)" && update.ReturnValues === "NONE");
-check("the account's did and token are untouched", row.did.S === did && row.token.S === "code");
+check("the account's did and creation time are untouched", row.did.S === did && row.CreatedAt.S === "2026-11-01T00:00:00.000Z");
 
 res = await handler(await read());
 check("the change reads back", res.statusCode === 200 && JSON.parse(res.body).contactOptIn === true);

@@ -58,14 +58,13 @@ export const handler = async (event) => {
         return json(401, { error: "Login failed." });
     }
 
-    // Identity only: the wallet finds its spaces through the PWS server.
+    // Identity only: the wallet finds its spaces through the PWS server, and
+    // creates further ones under its account Space with a capability on it.
+    // Nothing of the registration code is returned (rows written before the
+    // code stopped being stored still hold it as `token`; it is not read).
     return json(200, {
         verified: true,
         email,
-        controller: registeredDid,
-        // The registration token, which the PWS server requires as the coupon
-        // when creating a space. Returned only to the account holder: the
-        // login just verified their signature.
-        token: account?.token?.S
+        controller: registeredDid
     });
 };
