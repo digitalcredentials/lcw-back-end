@@ -69,6 +69,15 @@ A registration flow and a zCap-authenticated login endpoint:
   controls are the encryption at rest, the registered address as the only
   destination, the rate limit, the log line per send, and the wallet
   replacing the code after every use.
+- **`lcw-badge`** — a Node.js Lambda for the account's grant for the LCW
+  Alpha Testing Badge, which lets the badge's issuer (aws-lambda-issuer)
+  issue it to wallet accounts only, once each. `POST /badge-grant`
+  `{email}`, signed as the account, answers `{grant}` (the same one until
+  the badge is collected, then `409`). `POST /badge-grant/redeem`
+  `{grant, consume?}` is the issuer's: not signed, since the grant is the
+  secret; it answers `{valid: true}`, and with `consume` marks the badge
+  collected, once. Both values are kept on the account row (`badgeGrant`,
+  `badgeCollectedAt`). `cd src/lcw-badge && npm install && npm test`.
 - **`lcw-contact`** — a Node.js Lambda holding the tester's answer to
   "Contact me with news and updates", asked at registration and changed
   from the wallet's Settings: `GET /contact?email=` answers
@@ -114,6 +123,8 @@ A registration flow and a zCap-authenticated login endpoint:
 | `src/lcw-login/index.mjs` | Login Lambda handler |
 | `src/lcw-login/test/local-test.mjs` | Local test for the login handler |
 | `src/lcw-login/test/wire-test.mjs` | Signed end-to-end test against the local API |
+| `src/lcw-badge/index.mjs` | Badge-grant Lambda handler |
+| `src/lcw-badge/test/local-test.mjs` | Local test for the badge-grant handler |
 | `src/lcw-contact/index.mjs` | Contact-choice Lambda handler |
 | `src/lcw-contact/test/local-test.mjs` | Local test for the contact-choice handler |
 
