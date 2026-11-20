@@ -46,13 +46,13 @@ async function signedEvent({ email }) {
     return makeEvent({ body: JSON.stringify(json), headers });
 }
 
-async function run(name, eventPromise, { registeredDid } = {}) {
+async function run(name, eventPromise, { registeredDid, extra = {} } = {}) {
     ddbMock.reset();
     // The account row: email -> did. A row written before the registration
     // code stopped being stored also holds it, as `token`.
     ddbMock.on(GetItemCommand).resolves(
         registeredDid
-            ? { Item: { email: { S: EMAIL }, did: { S: registeredDid }, token: { S: "secret-code" } } }
+            ? { Item: { email: { S: EMAIL }, did: { S: registeredDid }, token: { S: "secret-code" }, ...extra } }
             : {}
     );
     const response = await handler(await eventPromise);
@@ -84,6 +84,13 @@ const registeredOk = registered.statusCode === 200 &&
     registeredBody.space === undefined &&
     registeredBody.spaces === undefined;
 console.log(`   controller, no registration code, no spaces ${registeredOk ? "ok" : "FAIL"}`);
+
+// Whether the account may still collect the alpha testing badge (3 by default)
+const badgeOf = async (extra) => JSON.parse((await run("signed, badge collections on the row -> 200", signedEvent({ email: EMAIL }), { registeredDid: did, extra })).body).badgeAvailable;
+const badgeOk = registeredBody.badgeAvailable === true &&
+    (await badgeOf({ badgeCollections: { N: "2" } })) === true &&
+    (await badgeOf({ badgeCollections: { N: "3" } })) === false;
+console.log(`   the badge is available until 3 are collected ${badgeOk ? "ok" : "FAIL"}`);
 
 
 // An account registered as a did:webvh: the key signs under its verification
@@ -217,4 +224,4 @@ const repointedOk = repointedLogin.statusCode === 200 && JSON.parse(repointedLog
 console.log(`   re-pointed annex ${repointedOk ? "ok" : "FAIL"}`);
 globalThis.fetch = realFetch;
 
-process.exit(registeredOk && webvhOk && strangerOk && annexOk && annexElsewhereOk && repointedOk ? 0 : 1);
+process.exit(registeredOk && badgeOk && webvhOk && strangerOk && annexOk && annexElsewhereOk && repointedOk ? 0 : 1);

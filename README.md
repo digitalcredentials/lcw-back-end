@@ -75,9 +75,14 @@ A registration flow and a zCap-authenticated login endpoint:
   `{email}`, signed as the account, answers `{grant}` (the same one until
   the badge is collected, then `409`). `POST /badge-grant/redeem`
   `{grant, consume?}` is the issuer's: not signed, since the grant is the
-  secret; it answers `{valid: true}`, and with `consume` marks the badge
-  collected, once. Both values are kept on the account row (`badgeGrant`,
-  `badgeCollectedAt`). `cd src/lcw-badge && npm install && npm test`.
+  secret; it answers `{valid: true}`, and with `consume` counts one
+  collection. An account may collect the badge `BadgeCollectionLimit` times
+  (a stack parameter, default 3, so a holder who deletes it by accident can
+  collect it again); after that both routes answer `409`. The grant's
+  secret, the count and the time of the last collection are kept on the
+  account row (`badgeGrant`, `badgeCollections`, `badgeCollectedAt`).
+  `POST /login` answers `badgeAvailable`, so the wallet knows whether to
+  offer the badge. `cd src/lcw-badge && npm install && npm test`.
 - **`lcw-contact`** — a Node.js Lambda holding the tester's answer to
   "Contact me with news and updates", asked at registration and changed
   from the wallet's Settings: `GET /contact?email=` answers

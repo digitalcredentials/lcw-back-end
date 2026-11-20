@@ -5,6 +5,7 @@ import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
 const dynamoClient = new DynamoDBClient();
 const TABLE_NAME = process.env.TABLE_NAME ?? "lcw-accounts";
+const MAX_BADGE_COLLECTIONS = Number(process.env.MAX_BADGE_COLLECTIONS ?? "3");
 
 const json = (statusCode, body) => ({
     statusCode,
@@ -62,9 +63,13 @@ export const handler = async (event) => {
     // creates further ones under its account Space with a capability on it.
     // Nothing of the registration code is returned (rows written before the
     // code stopped being stored still hold it as `token`; it is not read).
+    // `badgeAvailable`: whether the account may still collect the alpha
+    // testing badge (src/lcw-badge counts its collections), so the wallet
+    // knows whether to offer it without a request of its own.
     return json(200, {
         verified: true,
         email,
-        controller: registeredDid
+        controller: registeredDid,
+        badgeAvailable: Number(account.badgeCollections?.N ?? "0") < MAX_BADGE_COLLECTIONS
     });
 };
