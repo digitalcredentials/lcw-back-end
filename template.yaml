@@ -545,6 +545,90 @@ Resources:
       LogGroupName: /aws/lambda/lcw-contact
       RetentionInDays: 30
 
+  # The account's grant for the LCW Alpha Testing Badge: the wallet asks for
+  # it (POST /badge-grant, signed as the account and verified as /recovery's
+  # are) and hands it to the badge's issuer, which checks it and marks it
+  # used (POST /badge-grant/redeem, not signed: the grant is the secret), so
+  # the badge is issued once per account. See src/lcw-badge/index.mjs.
+  LcwBadgeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lcw-badge
+      Description: Gives an account its grant for the alpha testing badge, and lets the issuer check and use it
+      CodeUri: src/lcw-badge/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      # Verifying a did:webvh account resolves its log
+      Timeout: 10
+      LoggingConfig:
+        LogGroup: !Ref BadgeFunctionLogGroup
+      Environment:
+        Variables:
+          ACCOUNTS_TABLE_NAME: !Ref AccountsTable
+          # As on the login function: the verifier's did:webvh log cap, 8 MiB
+          WEBVH_MAX_LOG_BYTES: "8388608"
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AccountsTable
+        # An update of the two badge attributes alone: the function can
+        # never rewrite an account's did
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt AccountsTable.Arn
+              Condition:
+                ForAllValues:StringEquals:
+                  dynamodb:Attributes:
+                    - email
+                    - badgeGrant
+                    - badgeCollectedAt
+                StringEqualsIfExists:
+                  dynamodb:ReturnValues:
+                    - NONE
+      Layers:
+        - !Ref WebvhVerifyLayer
+      Events:
+        BadgeGrant:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: POST
+            Path: /badge-grant
+        BadgeGrantRedeem:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: POST
+            Path: /badge-grant/redeem
+    Metadata:
+      # Bundled as one ES module; the verifier is left external and resolved
+      # from the webvh-verify layer at runtime.
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: node22
+        Format: esm
+        Platform: node
+        Sourcemap: false
+        OutExtension:
+          - .js=.mjs
+        Banner:
+          - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
+        EntryPoints:
+          - index.mjs
+        External:
+          - '@aws-sdk/*'
+          - webvh-verify
+
+  BadgeFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/lcw-badge
+      RetentionInDays: 30
+
   # ---- the did:webvh invocation verifier, shared as a layer
 
   # One copy of the zCap invocation verifier (a registered did:key or
