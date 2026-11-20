@@ -34,8 +34,10 @@ function reset({ registered = true, extra = {} } = {}) {
     const item = accounts.get(Key.email.S);
     const refuse = () => { throw Object.assign(new Error("condition"), { name: "ConditionalCheckFailedException" }); };
     if (!item) refuse();
-    if (UpdateExpression.includes("badgeCollectedAt")) {
-      if (item.badgeGrant?.S !== v[":secret"].S || item.badgeCollectedAt) refuse();
+    if (UpdateExpression.includes("badgeCollections")) {
+      const count = Number(item.badgeCollections?.N ?? "0");
+      if (item.badgeGrant?.S !== v[":secret"].S || count >= Number(v[":max"].N)) refuse();
+      item.badgeCollections = { N: String(count + 1) };
       item.badgeCollectedAt = v[":at"];
     } else {
       item.badgeGrant ??= v[":secret"];
@@ -107,20 +109,31 @@ check("malformed grants -> 404", true);
 res = await handler(event({ method: "POST", path: "/badge-grant/redeem", body: "{" }));
 check("a body that is not JSON -> 400", res.statusCode === 400);
 
+// The limit is 3 collections (the default)
 res = await redeem({ grant: good, consume: true });
-check("using the grant marks the badge collected", res.statusCode === 200 && bodyOf(res).valid === true && Boolean(accounts.get(EMAIL).badgeCollectedAt?.S));
-res = await redeem({ grant: good, consume: true });
-check("using it a second time -> 409", res.statusCode === 409 && bodyOf(res).collected === true);
-res = await redeem({ grant: good });
-check("checking a used grant -> 409", res.statusCode === 409 && bodyOf(res).valid === false);
+check("a collection is counted, with its time", res.statusCode === 200 && bodyOf(res).valid === true && accounts.get(EMAIL).badgeCollections?.N === "1" && Boolean(accounts.get(EMAIL).badgeCollectedAt?.S));
 res = await handler(await ask());
-check("the account is told its badge is collected -> 409", res.statusCode === 409 && bodyOf(res).collected === true);
+check("the account gets the same grant again while collections remain", res.statusCode === 200 && bodyOf(res).grant === good);
+res = await redeem({ grant: good, consume: true });
+const third = await redeem({ grant: good, consume: true });
+check("a second and a third collection are allowed", res.statusCode === 200 && third.statusCode === 200 && accounts.get(EMAIL).badgeCollections?.N === "3");
+res = await redeem({ grant: good, consume: true });
+check("a fourth collection -> 409, and the count stays at 3", res.statusCode === 409 && bodyOf(res).collected === true && accounts.get(EMAIL).badgeCollections?.N === "3");
+res = await redeem({ grant: good });
+check("checking the grant at the limit -> 409", res.statusCode === 409 && bodyOf(res).valid === false);
+res = await handler(await ask());
+check("the account is refused a grant at the limit -> 409", res.statusCode === 409 && bodyOf(res).collected === true);
 
-// Two uses at once: the second loses at the conditional write
-reset();
+// A row from before collections were counted (a time and no count) reads as none collected
+reset({ extra: { badgeCollectedAt: { S: "2026-11-20T00:00:00.000Z" } } });
+res = await handler(await ask());
+check("a row with a collection time and no count reads as none collected", res.statusCode === 200);
+
+// Five uses at once with one collection left: exactly one succeeds
+reset({ extra: { badgeCollections: { N: "2" } } });
 const racing = bodyOf(await handler(await ask())).grant;
-const [one, two] = await Promise.all([redeem({ grant: racing, consume: true }), redeem({ grant: racing, consume: true })]);
-check("two uses at once: exactly one succeeds", [one.statusCode, two.statusCode].sort().join() === "200,409");
+const raced = await Promise.all([1, 2, 3, 4, 5].map(() => redeem({ grant: racing, consume: true })));
+check("five uses at once with one collection left: exactly one succeeds", raced.filter((r) => r.statusCode === 200).length === 1 && accounts.get(EMAIL).badgeCollections.N === "3");
 
 // -- anything else
 res = await handler(event({ method: "GET", path: "/badge-grant" }));

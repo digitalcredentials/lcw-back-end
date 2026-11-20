@@ -6,26 +6,33 @@ import { verifyAccountInvocation } from "webvh-verify";
 
 // The account's grant for the LCW Alpha Testing Badge: what lets the badge's
 // issuer tell that a request comes from a wallet account, and issue one
-// badge per account. The wallet asks for the grant, signed as the account,
-// and hands it to the issuer; the issuer asks here whether it is good, and
-// marks it used when the badge is issued. Both are kept on the account row
-// (`badgeGrant`, `badgeCollectedAt`).
+// a limited number of badges per account (MAX_BADGE_COLLECTIONS; more than
+// one, so a holder who deletes the badge by accident can collect it again).
+// The wallet asks for the grant, signed as the account, and hands it to the
+// issuer; the issuer asks here whether it is good, and has a collection
+// counted when a badge is issued. The grant's secret, the count and the time
+// of the last collection are kept on the account row (`badgeGrant`,
+// `badgeCollections`, `badgeCollectedAt`).
 //
 //   POST /badge-grant         { email }           { grant }   (signed as the account)
-//                             409 { collected: true } once the badge is collected
+//                             409 { collected: true } once the limit is reached
 //   POST /badge-grant/redeem  { grant, consume? }  { valid: true }
 //                             404 { valid: false }                  no such grant
-//                             409 { valid: false, collected: true } already used
+//                             409 { valid: false, collected: true } limit reached
 //
 // The redeem route is called by the issuer and is not signed: the grant is
-// the secret. Without `consume` it only checks; with it, the grant is used
-// up, once.
+// the secret. Without `consume` it only checks; with it, one collection is
+// counted.
 //
 // A grant is the account's email (base64url) and a random secret, joined by
 // a dot, so the row is found by its key.
 
 const dynamo = new DynamoDBClient();
 const ACCOUNTS_TABLE = process.env.ACCOUNTS_TABLE_NAME ?? "lcw-accounts";
+const MAX_COLLECTIONS = Number(process.env.MAX_BADGE_COLLECTIONS ?? "3");
+
+const collectionsOf = (account) => Number(account?.badgeCollections?.N ?? "0");
+const limitReached = (account) => collectionsOf(account) >= MAX_COLLECTIONS;
 
 const json = (statusCode, body) => ({
     statusCode,
@@ -75,7 +82,7 @@ const same = (a, b) => {
 };
 
 // The account's grant, made on the first request and the same on every
-// later one until the badge is collected.
+// later one, until the account has collected as many badges as it may.
 async function grant(event) {
     let email;
     try {
@@ -90,7 +97,7 @@ async function grant(event) {
     if (!account) {
         return json(401, { error: "Unauthorized." });
     }
-    if (account.badgeCollectedAt?.S) {
+    if (limitReached(account)) {
         return json(409, { error: "This account has already collected its badge.", collected: true });
     }
     if (!account.badgeGrant?.S) {
@@ -122,7 +129,7 @@ async function redeem(event) {
     if (!account?.badgeGrant?.S || !same(account.badgeGrant.S, parts.secret)) {
         return json(404, { valid: false });
     }
-    if (account.badgeCollectedAt?.S) {
+    if (limitReached(account)) {
         return json(409, { valid: false, collected: true });
     }
     if (body.consume === true) {
@@ -131,15 +138,20 @@ async function redeem(event) {
                 new UpdateItemCommand({
                     TableName: ACCOUNTS_TABLE,
                     Key: { email: { S: parts.email } },
-                    UpdateExpression: "SET badgeCollectedAt = :at",
-                    ConditionExpression: "badgeGrant = :secret AND attribute_not_exists(badgeCollectedAt)",
-                    ExpressionAttributeValues: { ":at": { S: new Date().toISOString() }, ":secret": { S: parts.secret } },
+                    UpdateExpression: "SET badgeCollectedAt = :at ADD badgeCollections :one",
+                    ConditionExpression: "badgeGrant = :secret AND (attribute_not_exists(badgeCollections) OR badgeCollections < :max)",
+                    ExpressionAttributeValues: {
+                        ":at": { S: new Date().toISOString() },
+                        ":secret": { S: parts.secret },
+                        ":one": { N: "1" },
+                        ":max": { N: String(MAX_COLLECTIONS) }
+                    },
                     ReturnValues: "NONE"
                 })
             );
         } catch (error) {
             if (error.name === "ConditionalCheckFailedException") {
-                // Another request used it between the read and the write
+                // Other requests reached the limit between the read and the write
                 return json(409, { valid: false, collected: true });
             }
             throw error;
