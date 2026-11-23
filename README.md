@@ -39,6 +39,14 @@ A registration flow and a zCap-authenticated login endpoint:
     -d '{"issuedTo":"applicant@example.org"}'
   ```
 
+  The other answers, each with `{"error": "..."}`:
+
+  | Status | When |
+  | --- | --- |
+  | `401` | the `x-api-key` header is missing or is not the key |
+  | `400` | the body is not JSON, or `issuedTo` is not a string of at most 320 characters |
+  | `500` | the key could not be read from Parameter Store, or the code could not be written; nothing was minted, so the call can be made again |
+
   A minted code is for one account and is used up only when that account
   is complete. The row is written with `usesRemaining` set to
   `RegistrationCodeAttempts` (default 5) and `expiresAt` set
@@ -233,6 +241,9 @@ The stack outputs:
 - **`ConfirmUrl`** — the base URL for confirmation links (append `?token=...`);
   the state machine embeds it in confirmation emails automatically.
 - **`LoginUrl`** — the zCap-authenticated login endpoint (POST).
+- **`RegisterUrl`** — the code-gated registration endpoint (POST).
+- **`RegistrationCodesUrl`** — where the alpha application app's server
+  mints registration codes (POST, with the `x-api-key` header).
 - **`FunctionArn`** — the confirmation Lambda's ARN.
 - **`StateMachineArn`** — the registration state machine's ARN.
 
