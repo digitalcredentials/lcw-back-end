@@ -1,0 +1,14 @@
+{
+  "name": "lcw-create-account",
+  "version": "1.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/local-test.mjs"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1127.0",
+    "aws-sdk-client-mock": "^4.1.0"
+  }
+}
