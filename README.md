@@ -15,14 +15,52 @@ A registration flow and a zCap-authenticated login endpoint:
 
 - **`lcw-register`** — a Node.js Lambda invoked via `POST /register` with
   `{email, did, registrationCode, contactOptIn}`. It gates on the
-  deployment's registration code and starts the registration state machine,
-  passing on the answer to the register page's "Contact me with news and
-  updates" (anything but `true` is no). The code goes no further than that
-  check: it is not stored.
+  registration code, which must be a row of the PWS server's coupon table
+  (`pws-coupons`) that has not expired and is not closed, and starts the
+  registration state machine, passing on the code and the answer to the
+  register page's "Contact me with news and updates" (anything but `true`
+  is no). The code is not stored with the account.
+  `cd src/lcw-register && npm install && npm test`.
+- **`lcw-registration-codes`** — a Node.js Lambda invoked via
+  `POST /registration-codes`, which mints a registration code for one
+  person. The caller is the alpha application app's server, which presents
+  the API key (see **`RegistrationCodeApiKeyParameter`** below) in the
+  `x-api-key` header; the key must never be in a page a browser loads. The
+  body is optional: `{"issuedTo": "..."}` is a note of who the code is for,
+  kept on the row (the code is not tied to it: any email address can
+  register with the code). The answer is `201` with
+  `{code, link, expiresAt}`, where `link` opens the wallet's registration
+  page with the code filled in (`<WalletUrl>/#/register?code=...`); the
+  caller emails that link.
+
+  ```bash
+  curl -X POST https://api.lcw-sandbox.org/registration-codes \
+    -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+    -d '{"issuedTo":"applicant@example.org"}'
+  ```
+
+  A minted code is for one account and is used up only when that account
+  is complete. The row is written with `usesRemaining` set to
+  `RegistrationCodeAttempts` (default 5) and `expiresAt` set
+  `RegistrationCodeExpiryDays` ahead (default 90). The PWS server takes one
+  use each time a wallet starts creating an account Space, so a signup that
+  fails part-way leaves the code usable with the same link. When an account
+  registered with the code is confirmed, the row is closed (`closedAt`, and
+  `usesRemaining` zero) and neither the PWS server nor `POST /register`
+  accepts it again. A person whose signups all fail before any is confirmed
+  has no uses left after `RegistrationCodeAttempts` tries and needs a new
+  code. `cd src/lcw-registration-codes && npm install && npm test`.
+- **`lcw-create-account`** — a Node.js Lambda the state machine runs once
+  the email is confirmed. It writes the account row and, for a minted code,
+  closes the code in the same DynamoDB transaction, so two accounts
+  confirmed with one code cannot both be recorded: the second gets an email
+  saying the code has been used. A code with no `usesRemaining` (the
+  deployment's shared code) is never closed.
+  `cd src/lcw-create-account && npm install && npm test`.
 - **`wallet-account-creator`** — a Step Functions state machine that registers
   an account: it emails the user a confirmation link (pausing on a task
   token), then records the account (email → `did` plus the contact choice)
-  in the `lcw-accounts` DynamoDB table and
+  in the `lcw-accounts` DynamoDB table (through `lcw-create-account`) and
   emails the user a confirmation. The account's storage is not this stack's concern: the
   wallet creates its own account Space on the PWS server
   ([was-server-aws](../was-server-aws)), with the registration code as the
@@ -145,11 +183,27 @@ A registration flow and a zCap-authenticated login endpoint:
   `james.chartrand@dccommons.org`). CloudFormation cannot activate a receipt
   rule set, so after the first deploy run
   `aws ses set-active-receipt-rule-set --rule-set-name lcw-sandbox-inbound`.
-- **`RegistrationCode`** — code the registration form must supply (NoEcho;
-  the default is only for local development). It is compared and not
-  stored. The wallet sends the same code to the PWS server once, to create
-  the account Space, so the value must also be a coupon in that server's
-  `pws-coupons` table.
+- **`CouponsTableName`** — the PWS server's coupon table (default
+  `pws-coupons`), in the same account and region. Registration codes are
+  its rows; there is no registration code parameter. A deployment's shared
+  code, if it has one, is a row with no `usesRemaining`, added by hand as
+  the PWS server's README shows; removing that row ends registration with
+  it.
+- **`RegistrationCodeAttempts`** (default 5) and
+  **`RegistrationCodeExpiryDays`** (default 90) — see
+  `lcw-registration-codes` above.
+- **`RegistrationCodeApiKeyParameter`** — the name of the Parameter Store
+  SecureString holding the API key for `POST /registration-codes` (default
+  `/lcw/registration-codes/api-key`). CloudFormation cannot create a
+  SecureString, so make it by hand before the first call:
+
+  ```bash
+  aws ssm put-parameter --name /lcw/registration-codes/api-key \
+    --type SecureString --value "$(openssl rand -base64 32)"
+  ```
+
+  To replace the key, run the same command with `--overwrite`; the function
+  reads the parameter again within five minutes.
 ## Prerequisites
 
 - [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)

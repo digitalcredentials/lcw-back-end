@@ -43,14 +43,39 @@ Parameters:
     Type: String
     Description: Verified address that inbound mail for FromEmail forwards to.
     Default: james.chartrand@dccommons.org
-  RegistrationCode:
+  CouponsTableName:
     Type: String
-    NoEcho: true
     Description: >
-      Code a user must supply on the registration form before the registration
-      state machine is started. Override at deploy time; the default is only
-      for local development.
-    Default: test-registration-code
+      The PWS server's coupon table, in this account and region. A
+      registration code is a row there: the PWS server spends it when the
+      wallet creates the account Space, and this stack reads it at
+      POST /register, mints rows at POST /registration-codes and closes a
+      limited one when its account is confirmed.
+    Default: pws-coupons
+  RegistrationCodeAttempts:
+    Type: Number
+    Description: >
+      How many times the PWS server accepts a minted registration code
+      before an account made with it is confirmed. A signup that fails
+      part-way spends one, so more than one lets the person try again with
+      the same link. The code is closed at the first confirmed account
+      whatever is left.
+    Default: 5
+    MinValue: 1
+  RegistrationCodeExpiryDays:
+    Type: Number
+    Description: How many days a minted registration code can be used for.
+    Default: 90
+    MinValue: 1
+  RegistrationCodeApiKeyParameter:
+    Type: String
+    Description: >
+      Name of the Parameter Store SecureString holding the API key that
+      POST /registration-codes requires in its x-api-key header. The
+      parameter is made by hand (CloudFormation cannot create a
+      SecureString); see the README.
+    Default: /lcw/registration-codes/api-key
+    AllowedPattern: ^/[A-Za-z0-9_./-]+$
 
 Resources:
   ConfirmationHttpApi:
@@ -118,7 +143,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: lcw-register
-      Description: Gates registration on a code, then starts the wallet-account-creator state machine
+      Description: Gates registration on a code from the coupon table, then starts the wallet-account-creator state machine
       CodeUri: src/lcw-register/
       Handler: index.handler
       Runtime: nodejs24.x
@@ -128,7 +153,7 @@ Resources:
       Timeout: 5
       Environment:
         Variables:
-          REGISTRATION_CODE: !Ref RegistrationCode
+          COUPONS_TABLE_NAME: !Ref CouponsTableName
           # Constructed rather than !Ref'd: the state machine references the
           # HTTP API (for ConfirmUrl), and the API embeds this function, so a
           # !Ref here would close a circular dependency. The name is fixed.
@@ -136,6 +161,11 @@ Resources:
       Policies:
         - StepFunctionsExecutionPolicy:
             StateMachineName: wallet-account-creator
+        # Reads the registration code's row, nothing else of the table
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${CouponsTableName}
       LoggingConfig:
         LogGroup: !Ref RegisterFunctionLogGroup
       Events:
@@ -150,6 +180,94 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: /aws/lambda/lcw-register
+      RetentionInDays: 30
+
+  # Registration codes for single people: POST /registration-codes, called
+  # by the alpha application app's server with the API key, mints a code
+  # (a row of the PWS server's coupon table) and answers the link that
+  # opens the wallet's registration page with the code filled in. See
+  # src/lcw-registration-codes/index.mjs.
+  LcwRegistrationCodesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lcw-registration-codes
+      Description: Mints a registration code for one person and answers the registration link
+      CodeUri: src/lcw-registration-codes/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - x86_64
+      MemorySize: 128
+      Timeout: 5
+      LoggingConfig:
+        LogGroup: !Ref RegistrationCodesFunctionLogGroup
+      Environment:
+        Variables:
+          COUPONS_TABLE_NAME: !Ref CouponsTableName
+          API_KEY_PARAMETER: !Ref RegistrationCodeApiKeyParameter
+          WALLET_URL: !Ref WalletUrl
+          CODE_ATTEMPTS: !Ref RegistrationCodeAttempts
+          CODE_EXPIRY_DAYS: !Ref RegistrationCodeExpiryDays
+      Policies:
+        # Writes new rows only: the function can neither read nor change a
+        # code that exists
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${CouponsTableName}
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${RegistrationCodeApiKeyParameter}
+      Events:
+        MintRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfirmationHttpApi
+            Method: POST
+            Path: /registration-codes
+
+  RegistrationCodesFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/lcw-registration-codes
+      RetentionInDays: 30
+
+  # The registration state machine's account step: writes the account row
+  # once the email is confirmed and closes a limited registration code in
+  # the same transaction. See src/lcw-create-account/index.mjs.
+  LcwCreateAccountFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lcw-create-account
+      Description: Records a confirmed account and closes its registration code
+      CodeUri: src/lcw-create-account/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - x86_64
+      MemorySize: 128
+      Timeout: 5
+      LoggingConfig:
+        LogGroup: !Ref CreateAccountFunctionLogGroup
+      Environment:
+        Variables:
+          ACCOUNTS_TABLE_NAME: !Ref AccountsTable
+          COUPONS_TABLE_NAME: !Ref CouponsTableName
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt AccountsTable.Arn
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${CouponsTableName}
+
+  CreateAccountFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/lcw-create-account
       RetentionInDays: 30
 
   LcwLoginFunction:
@@ -233,9 +351,9 @@ Resources:
             - Effect: Allow
               Action: ses:SendEmail
               Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}
-        # CreateAccount writes the account row.
-        - DynamoDBWritePolicy:
-            TableName: !Ref AccountsTable
+        # CreateAccount runs the function that writes the account row.
+        - LambdaInvokePolicy:
+            FunctionName: !Ref LcwCreateAccountFunction
       DefinitionSubstitutions:
         ConfirmUrl: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/confirm
         WalletUrl: !Ref WalletUrl
@@ -254,7 +372,7 @@ Resources:
           <tr><td style='padding:16px 32px;border-top:1px solid #e5e7eb;font-size:13px;color:#6b7280;'>${OrgName} &middot; Learner Credential Wallet</td></tr>
           </table></td></tr></table></body></html>
         ButtonStyle: display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;
-        AccountTable: !Ref AccountsTable
+        CreateAccountFunctionArn: !GetAtt LcwCreateAccountFunction.Arn
         FromEmail: !Ref FromEmail
       Definition:
         Comment: DCC LCW registration state machine
@@ -283,35 +401,58 @@ Resources:
                         <p style='margin:24px 0;'><a href='${ConfirmUrl}?token=" & $encodeUrlComponent($states.context.Task.Token) & "' style='${ButtonStyle}'>Confirm my email</a></p>
                         <p style='font-size:14px;color:#6b7280;'>If you did not register, you can ignore this email.</p>${EmailFoot}" %}
             Next: CreateAccount
+          # Writes the account row and closes a limited registration code,
+          # in one transaction (src/lcw-create-account). confirmationKey is
+          # the hash of the confirmation link's task token, which the
+          # confirmation page polls the row by (GET /confirm/status)
+          # before it offers to open the wallet.
           CreateAccount:
             Type: Task
-            Resource: arn:aws:states:::dynamodb:putItem
+            Resource: arn:aws:states:::lambda:invoke
             Arguments:
-              TableName: ${AccountTable}
-              # The account row is identity (email -> did) and the tester's
-              # contact choice; the account's spaces live in the PWS server,
-              # which the wallet provisions itself.
-              Item:
-                email:
-                  S: '{% $states.context.Execution.Input.recipientEmail %}'
-                did:
-                  S: '{% $states.context.Execution.Input.did %}'
-                # The hash of the confirmation link's task token, which the
-                # confirmation page polls the row by (GET /confirm/status)
-                # before it offers to open the wallet
-                confirmationKey:
-                  S: '{% $states.input.confirmationKey ? $states.input.confirmationKey : "none" %}'
-                CreatedAt:
-                  S: '{% $now() %}'
-                # The answer to "Contact me with news and updates" at
-                # registration, and when it was given; the wallet's Settings
-                # change both later (PUT /contact). A row without them (an
-                # account registered before the question) reads as no.
-                contactOptIn:
-                  BOOL: '{% $states.context.Execution.Input.contactOptIn = true %}'
-                contactOptInUpdatedAt:
-                  S: '{% $now() %}'
+              FunctionName: ${CreateAccountFunctionArn}
+              Payload:
+                email: '{% $states.context.Execution.Input.recipientEmail %}'
+                did: '{% $states.context.Execution.Input.did %}'
+                contactOptIn: '{% $states.context.Execution.Input.contactOptIn = true %}'
+                registrationCode: '{% $states.context.Execution.Input.registrationCode %}'
+                confirmationKey: '{% $states.input.confirmationKey ? $states.input.confirmationKey : "none" %}'
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                  - Lambda.TooManyRequestsException
+                IntervalSeconds: 1
+                MaxAttempts: 3
+                BackoffRate: 2
+            # Another account was confirmed with the same code first
+            Catch:
+              - ErrorEquals:
+                  - CodeAlreadyUsed
+                Next: SendCodeUsedEmail
             Next: SendEmailConf
+          SendCodeUsedEmail:
+            Type: Task
+            Resource: arn:aws:states:::aws-sdk:sesv2:sendEmail
+            Arguments:
+              FromEmailAddress: ${FromEmail}
+              Destination:
+                ToAddresses:
+                  - '{% $states.context.Execution.Input.recipientEmail %}'
+              Content:
+                Simple:
+                  Subject:
+                    Data: Your wallet could not be set up
+                  Body:
+                    Text:
+                      Data: "Your Learner Credential Wallet account could not be set up: the registration code you used has already been used for another account. To ask for a new code, reply to this email."
+                    Html:
+                      Data: >-
+                        ${EmailHead}<h1 style='font-size:22px;margin:16px 0;'>Your wallet could not be set up</h1>
+                        <p>Your Learner Credential Wallet account could not be set up: the registration code you used has already been used for another account.</p>
+                        <p>To ask for a new code, reply to this email.</p>${EmailFoot}
+            End: true
           SendEmailConf:
             Type: Task
             Resource: arn:aws:states:::aws-sdk:sesv2:sendEmail
@@ -814,6 +955,9 @@ Outputs:
   RegisterUrl:
     Description: URL for the code-gated registration endpoint (POST)
     Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/register
+  RegistrationCodesUrl:
+    Description: URL the alpha application app's server mints registration codes at (POST, x-api-key)
+    Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/registration-codes
   LoginUrl:
     Description: URL for the zCap-authenticated login endpoint (POST)
     Value: !Sub https://${ConfirmationHttpApi}.execute-api.${AWS::Region}.amazonaws.com/login
