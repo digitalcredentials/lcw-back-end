@@ -83,9 +83,9 @@ const json = (statusCode, body) => ({
 // signal, as before.
 function waitingPage(key) {
   const waiting = paragraphs(["Thank you. Hang tight, we are setting up your wallet."]);
-  const ready = paragraphs(["Your wallet is ready. Sign in with your email address and the passphrase you chose."]) + button({ label: "Open my wallet", url: SIGN_IN_URL });
+  const ready = paragraphs(["Your wallet is ready. Sign in with your email address and the password you chose."]) + button({ label: "Open my wallet", url: SIGN_IN_URL });
   const late = paragraphs([
-    "This is taking longer than expected. You will receive an email when your wallet is ready; sign in then with your email address and the passphrase you chose.",
+    "This is taking longer than expected. You will receive an email when your wallet is ready; sign in then with your email address and the password you chose.",
   ]);
   const fallback = paragraphs([
     "Thank you. Your wallet account is being set up; you will receive one more email when it is ready.",
